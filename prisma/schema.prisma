@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -10,4 +5,89 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+}
+
+enum LiveStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+}
+
+model Creator {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lives Live[]
+}
+
+model Live {
+  id        String     @id @default(uuid())
+  creatorId String
+  name      String
+  slug      String     @unique
+  status    LiveStatus @default(DRAFT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  creator  Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  products Product[]
+  orders   Order[]
+
+  @@index([creatorId])
+}
+
+model Product {
+  id        String   @id @default(uuid())
+  liveId    String
+  name      String
+  price     Int
+  options   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  live       Live        @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([liveId])
+}
+
+model Order {
+  id               String        @id @default(uuid())
+  liveId           String
+  customerName     String
+  customerPhone    String
+  deliveryLocation String
+  totalAmount      Int
+  paymentStatus    PaymentStatus @default(PENDING)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  live  Live        @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  items OrderItem[]
+
+  @@index([liveId])
+  @@index([paymentStatus])
+}
+
+model OrderItem {
+  id              String @id @default(uuid())
+  orderId         String
+  productId       String
+  productName     String
+  unitPrice       Int
+  quantity        Int
+  selectedOptions Json?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
 }
