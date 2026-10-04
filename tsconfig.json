@@ -9,7 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": [
-    "server/src/**/*.ts"
-  ]
+  "include": ["server/src/**/*.ts", "prisma7.config.ts"]
 }
