@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import creatorsRouter from "./modules/creators/creators.routes.js";
 import cookieParser from "cookie-parser";
+import livesRouter from "./modules/lives/lives.routes.js";
 import { errorHandler } from "./shared/errors/error-handler.js";
 
 const app = express();
@@ -15,6 +16,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/v1/creator", creatorsRouter);
+app.use("/api/v1/lives", livesRouter);
 
 app.use(errorHandler);
 
