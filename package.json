@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "concurrently \"pnpm --dir server dev\" \"pnpm --dir client dev\"",
     "build": "pnpm --dir client build",
-    "start": "pnpm --dir server start"
+    "start": "pnpm --dir server start",
+    "creator:create": "tsx server/src/scripts/create-creator.ts"
   },
   "keywords": [],
   "author": "",
