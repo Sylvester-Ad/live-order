@@ -19,13 +19,27 @@ enum PaymentStatus {
 }
 
 model Creator {
-  id             String   @id @default(uuid())
+  id             String           @id @default(uuid())
   name           String
-  accessCodeHash String   @unique
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  accessCodeHash String           @unique
+  sessions       CreatorSession[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   lives Live[]
+}
+
+model CreatorSession {
+  id         String   @id @default(uuid())
+  creatorId  String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId])
+  @@index([expiresAt])
 }
 
 model Live {

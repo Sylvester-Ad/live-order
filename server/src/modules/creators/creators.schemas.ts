@@ -5,3 +5,10 @@ export const creatorAccessSchema = z.object({
 });
 
 export type CreatorAccessInput = z.infer<typeof creatorAccessSchema>;
+
+export const creatorResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+export type CreatorResponse = z.infer<typeof creatorResponseSchema>;
