@@ -21,6 +21,7 @@
   "packageManager": "pnpm@12.8.1",
   "type": "module",
   "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.10.0",
     "@prisma/client": "^7.10.0"
   },
   "devDependencies": {
