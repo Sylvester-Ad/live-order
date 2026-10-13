@@ -5,7 +5,10 @@
   "description": "",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test:prepare": "tsx src/scripts/prepare-test-db.ts",
+    "test": "pnpm run test:prepare && vitest run",
+    "test:watch": "pnpm run test:prepare && vitest"
   },
   "keywords": [],
   "author": "",
@@ -31,7 +34,10 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.0",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.1",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
   }
 }

@@ -20,7 +20,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/v1/creator", creatorsRouter);
 app.use("/api/v1/lives", livesRouter);
 app.use("/api/v1", productsRouter);
-app.use("api/v1", ordersRouter);
+app.use("/api/v1", ordersRouter);
 
 app.use(errorHandler);
 

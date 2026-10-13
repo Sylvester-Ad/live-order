@@ -13,7 +13,10 @@ if (!connectionString) {
   throw new Error("DATABASE_URL is not defined");
 }
 
-const databasePath = path.resolve(process.cwd(), "../data/dev.db");
+const databasePath = path.resolve(
+  process.cwd(),
+  process.env.LIVEORDER_DATABASE_PATH ?? "../data/dev.db",
+);
 
 const adapter = new PrismaBetterSqlite3({
   url: `file:${databasePath}`,
