@@ -16,3 +16,13 @@ export const liveResponseSchema = z.object({
 });
 
 export type LiveResponse = z.infer<typeof liveResponseSchema>;
+
+export const updateLiveSchema = z.object({
+  status: z.enum(["ACTIVE", "ENDED"]).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+}).refine(
+  (data) => Object.keys(data).length > 0,
+  { message: "At least one field must be provided" },
+);
+
+export type UpdateLiveInput = z.infer<typeof updateLiveSchema>;
