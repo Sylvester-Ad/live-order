@@ -157,3 +157,37 @@ export async function markOrderAsPaid(
     },
   });
 }
+
+export async function exportOrders(creatorId: string, liveId: string) {
+  const live = await prisma.live.findFirst({
+    where: {
+      id: liveId,
+      creatorId,
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+
+  if (!live) {
+    throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
+  }
+
+  const orders = await prisma.order.findMany({
+    where: {
+      liveId: live.id,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      items: true,
+    },
+  });
+
+  return {
+    live,
+    orders,
+  };
+}
