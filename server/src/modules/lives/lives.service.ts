@@ -64,3 +64,14 @@ export async function updateLive(
     },
   });
 }
+
+export async function listLives(creatorId: string) {
+  return prisma.live.findMany({
+    where: {
+      creatorId,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+}

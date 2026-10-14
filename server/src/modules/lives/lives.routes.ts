@@ -5,7 +5,7 @@ import {
   liveResponseSchema,
   updateLiveSchema,
 } from "./lives.schemas.js";
-import { createLive, updateLive } from "./lives.service.js";
+import { createLive, updateLive, listLives } from "./lives.service.js";
 import { AppError } from "../../shared/errors/app-error.js";
 
 const router = Router();
@@ -41,6 +41,18 @@ router.patch("/:liveId", requireCreator, async (req, res, next) => {
 
     return res.json({
       data: liveResponseSchema.parse(live),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/", requireCreator, async (req, res, next) => {
+  try {
+    const lives = await listLives(req.creator!.id);
+
+    return res.json({
+      data: lives.map((live) => liveResponseSchema.parse(live)),
     });
   } catch (error) {
     next(error);
