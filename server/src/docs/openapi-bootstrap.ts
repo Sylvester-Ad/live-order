@@ -1,0 +1,8 @@
+import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import { z } from "zod";
+
+extendZodWithOpenApi(z);
+
+const { openApiDocument } = await import("./openapi.js");
+
+export { openApiDocument };
