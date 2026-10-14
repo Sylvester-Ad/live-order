@@ -75,3 +75,35 @@ export async function listLives(creatorId: string) {
     },
   });
 }
+
+export async function getPublicLiveBySlug(slug: string) {
+  const live = await prisma.live.findFirst({
+    where: {
+      slug,
+      status: "ACTIVE",
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      products: {
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          options: true,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+    },
+  });
+
+  if (!live) {
+    throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
+  }
+
+  return live;
+}

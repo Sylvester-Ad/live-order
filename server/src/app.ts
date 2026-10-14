@@ -6,6 +6,7 @@ import livesRouter from "./modules/lives/lives.routes.js";
 import productsRouter from "./modules/products/products.routes.js";
 import ordersRouter from "./modules/orders/orders.routes.js";
 import { errorHandler } from "./shared/errors/error-handler.js";
+import publicLivesRouter from "./modules/lives/pubic.routes.js";
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.use("/api/v1/creator", creatorsRouter);
 app.use("/api/v1/lives", livesRouter);
 app.use("/api/v1", productsRouter);
 app.use("/api/v1", ordersRouter);
+app.use("/api/v1/public", publicLivesRouter);
 
 app.use(errorHandler);
 
