@@ -90,3 +90,70 @@ export async function createOrder(liveId: string, input: CreateOrderInput) {
     });
   });
 }
+
+export async function listOrders(creatorId: string, liveId: string) {
+  const live = await prisma.live.findFirst({
+    where: {
+      id: liveId,
+      creatorId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!live) {
+    throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
+  }
+
+  return prisma.order.findMany({
+    where: {
+      liveId: live.id,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      items: true,
+    },
+  });
+}
+
+export async function markOrderAsPaid(
+  creatorId: string,
+  orderId: string,
+) {
+  const order = await prisma.order.findFirst({
+    where: {
+      id: orderId,
+      live: {
+        creatorId,
+      },
+    },
+    select: {
+      id: true,
+      paymentStatus: true,
+    },
+  });
+
+  if (!order) {
+    throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  }
+
+  if (order.paymentStatus === "PAID") {
+    return prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { items: true },
+    });
+  }
+
+  return prisma.order.update({
+    where: { id: order.id },
+    data: {
+      paymentStatus: "PAID",
+    },
+    include: {
+      items: true,
+    },
+  });
+}

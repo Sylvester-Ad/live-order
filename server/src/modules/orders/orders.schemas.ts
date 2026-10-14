@@ -57,3 +57,11 @@ export const orderResponseSchema = z.object({
 });
 
 export type OrderResponse = z.infer<typeof orderResponseSchema>;
+
+export const updateOrderSchema = z
+  .object({
+    paymentStatus: z.enum(["PAID"]),
+  })
+  .strict();
+
+export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
