@@ -84,6 +84,21 @@ registry.registerPath({
   },
 });
 
+// POST /api/v1/creator/logout
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/logout",
+  tags: ["Authentication"],
+  summary: "Creator logout",
+  description:
+    "Invalidates the current creator session, if present, and clears the session cookie. Safe to call without an active session.",
+  responses: {
+    204: {
+      description: "Session invalidated and cookie cleared.",
+    },
+  },
+});
+
 // POST /api/v1/lives
 registry.registerPath({
   method: "post",

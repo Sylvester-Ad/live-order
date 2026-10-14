@@ -6,6 +6,8 @@ import {
   createCreatorSession,
 } from "./creators.service.js";
 import { requireCreator } from "../../shared/middleware/require-creator.js";
+import { prisma } from "../../database/prisma.js";
+import { hashSessionToken } from "../../shared/utils/sessions.js";
 
 const router = Router();
 
@@ -43,6 +45,30 @@ router.get("/me", requireCreator, (req, res) => {
   return res.json({
     data: creatorResponseSchema.parse(req.creator),
   });
+});
+
+router.post("/logout", async (req, res, next) => {
+  try {
+    const sessionToken = req.cookies?.session;
+
+    if (sessionToken) {
+      await prisma.creatorSession.deleteMany({
+        where: {
+          tokenHash: hashSessionToken(sessionToken),
+        },
+      });
+    }
+
+    res.clearCookie("session", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+
+    return res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;
