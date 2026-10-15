@@ -6,7 +6,9 @@ The frontend is a React and TypeScript application built with Vite. It uses Tail
 
 From the repository root, `pnpm dev` starts the Express API on port 3000 and Vite on port 5173. Vite proxies `/api` and the API documentation routes to Express. Browser API calls use the same-origin `/api` path by default, which lets the HTTP-only session cookie work without cross-origin cookie configuration.
 
-`VITE_API_BASE_URL` is an optional public frontend setting. It defaults to `/api`. Do not put secrets in `VITE_*` variables. Production must route the API through the same site or explicitly configure credentialed CORS and cookie policy; the current backend defaults are intended for same-origin proxying.
+`API_PROXY_TARGET` in `client/.env` selects the upstream origin used by Vite for `/api`, `/api-docs`, and `/api-docs.json`. It defaults to `http://localhost:3000`; change it when the backend runs elsewhere and restart Vite. This setting is consumed by Vite and is not exposed to browser code.
+
+`VITE_API_BASE_URL` controls the browser request base and defaults to same-origin `/api`. `VITE_*` values are public and must not contain secrets. Express uses `CORS_ORIGINS`, a comma-separated list of exact allowed origins, for direct cross-origin requests; configure it in the server environment (or the repository-root `.env` used by the server). Local Vite and preview origins are allowed by default. Credentialed CORS reflects only allowlisted origins. The session cookie is `SameSite=Lax`, so a cross-origin deployment must remain same-site; for a different site, use a same-site reverse proxy or separately review the cookie policy. The recommended production arrangement is a same-origin or same-site API proxy.
 
 Useful commands:
 
@@ -18,7 +20,7 @@ pnpm --dir client test
 pnpm --dir client generate:api
 ```
 
-API type generation reads `http://localhost:3000/api-docs.json`; run the backend first, then review generated changes. Do not hand-edit `src/types/openapi.generated.ts`.
+API type generation reads `/api-docs.json` from the configured `API_PROXY_TARGET`; run the backend first, then review generated changes. Set `API_PROXY_TARGET` in `client/.env` (or the command environment) to use a different backend. Do not hand-edit `src/types/openapi.generated.ts`.
 
 ## Project structure
 

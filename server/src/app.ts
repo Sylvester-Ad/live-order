@@ -11,12 +11,13 @@ import publicLivesRouter from "./modules/lives/public.routes.js";
 import swaggerUi from "swagger-ui-express";
 import morgan from "morgan";
 import { errorHandler } from "./shared/errors/error-handler.js";
+import { createCorsOptions } from "./config/cors.js";
 
 const app = express();
 let docsRouterPromise: Promise<express.Router> | undefined;
 
 app.use(morgan("dev"));
-app.use(cors());
+app.use(cors(createCorsOptions()));
 app.use(express.json());
 app.use(cookieParser());
 

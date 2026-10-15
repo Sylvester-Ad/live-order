@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api": "openapi-typescript http://localhost:3000/api-docs.json -o src/types/openapi.generated.ts"
+    "generate:api": "node scripts/generate-api-types.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
