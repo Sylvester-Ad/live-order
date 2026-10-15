@@ -122,7 +122,7 @@ The first version should support:
 3. A seller dashboard.
 4. Live session creation and listing.
 5. Live session activation and completion.
-6. Product creation for a Live.
+6. Product management for a Live, including creation, editing, and deletion when no order history references the product.
 7. Public access to an active Live.
 8. Public product browsing.
 9. Customer order submission.
@@ -145,7 +145,6 @@ Do not assume the first version supports:
 * Seller registration or password recovery.
 * Multiple employees and role-based permissions.
 * Product inventory management.
-* Product editing or deletion.
 * Order cancellation or refunds.
 * Automated customer notifications.
 * Real-time order notifications.

@@ -41,7 +41,7 @@ export function PublicLivePage() {
           {live.data.products.map((product) => (
             <Card key={product.id}>
               <CardContent>
-                <div className="mb-6 grid aspect-[4/3] place-items-center rounded-control bg-brand-50 text-brand-700">
+                <div className="mb-6 grid aspect-4/3 place-items-center rounded-control bg-brand-50 text-brand-700">
                   <span className="text-sm font-semibold">Product</span>
                 </div>
                 <h2 className="font-bold text-ink">{product.name}</h2>

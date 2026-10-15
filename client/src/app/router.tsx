@@ -13,6 +13,8 @@ import { CreateLivePage } from "../features/lives/pages/create-live-page";
 import { LiveSectionPlaceholder } from "../features/lives/pages/live-section-placeholder";
 import { LivesPage } from "../features/lives/pages/lives-page";
 import { LiveWorkspacePage } from "../features/lives/pages/live-workspace-page";
+import { ProductsPage } from "../features/products/pages/products-page";
+import { ProductFormPage } from "../features/products/pages/product-form-page";
 import { PublicLivePage } from "../features/public-live/pages/public-live-page";
 import { NotFoundPage } from "./NotFoundPage";
 
@@ -36,10 +38,9 @@ export const routeConfig: RouteObject[] = [
           { path: "lives", element: <LivesPage /> },
           { path: "lives/new", element: <CreateLivePage /> },
           { path: "lives/:liveId", element: <LiveWorkspacePage /> },
-          {
-            path: "lives/:liveId/products",
-            element: <LiveSectionPlaceholder section="Products" />,
-          },
+          { path: "lives/:liveId/products", element: <ProductsPage /> },
+          { path: "lives/:liveId/products/new", element: <ProductFormPage /> },
+          { path: "lives/:liveId/products/:productId/edit", element: <ProductFormPage /> },
           {
             path: "lives/:liveId/orders",
             element: <LiveSectionPlaceholder section="Orders" />,

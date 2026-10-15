@@ -32,6 +32,7 @@ src/
     auth/              # Creator login, session hooks, route protection
     dashboard/         # Seller dashboard and Lives listing
     lives/             # Live workspace and Live API access
+    products/          # Live-scoped product CRUD and product API access
     public-live/       # Public customer storefront
   lib/                 # API transport, query client, formatting helpers
   types/               # Generated API contract types
@@ -53,6 +54,7 @@ Application code stays organized by feature and responsibility; tests live in a 
 - `/lives/new` creates a Live using its name, then opens `/lives/:liveId`.
 - `/lives/:liveId` resolves the selected Live from `GET /api/v1/lives`. The backend has no authenticated single-Live read endpoint, so the workspace refreshes the creator-owned list on entry rather than trusting an old cache.
 - Draft Lives can be activated and active Lives can be ended using `PATCH /api/v1/lives/:liveId`. Ending requires confirmation. The interface offers no transition from `ENDED`.
+- `/lives/:liveId/products` lists products scoped to that Live. `/new` creates a product and `/:productId/edit` updates it; editing resolves the product from the authenticated per-Live product list.
 - Seller routes are wrapped by `RequireCreator`, which restores the session through `GET /api/v1/creator/me` before rendering private pages.
 - Logout calls `POST /api/v1/creator/logout`, then clears the TanStack Query cache.
 - The cookie is HTTP-only. Never read or persist its value in JavaScript.
@@ -66,7 +68,7 @@ Use `api` from `src/lib/api-client.ts` for all HTTP requests. Pass paths relativ
 
 Use TanStack Query for server-owned data. Query keys are defined by feature hooks. Mutations should invalidate or update relevant query data; do not mirror server data into local state. Keep form drafts and transient UI state local to the component or feature.
 
-The backend owns prices, totals, validation, status transitions, and persisted state. API money is integer pesewas; use `formatPesewas` for display and preserve integer values in data flows. Product `options` are currently arbitrary JSON, so do not invent a schema or silently discard values.
+The backend owns prices, totals, validation, status transitions, and persisted state. API money is integer pesewas; use `formatPesewas` for display and `parseCedisToPesewas` for exact decimal GHS input. Product `options` are arbitrary JSON objects; the seller product editor accepts JSON and preserves options on updates unless they are deliberately changed or cleared. Product deletion is rejected by the backend when order history references the product (`409 PRODUCT_IN_USE`), and the UI keeps the product visible in that case. Product operations are not restricted by Live status in the current backend.
 
 ## Styling
 
@@ -80,12 +82,14 @@ Client test files are under `tests/`, grouped by app, shared components, feature
 
 The Live feature suite covers list success/empty/error states, workspace lookup, create validation and success/error feedback, activation, confirmed ending, and rejected transitions that preserve server state.
 
+The product suite covers Live-scoped list/loading/empty/error states, create and update payloads, backend validation failures, exact GHS-to-pesewas conversion, JSON option validation and preservation, successful deletion, and deletion rejected for order history.
+
 Current product stages:
 
 1. Complete: foundation, creator auth, session restoration, and a real Lives dashboard.
 2. Complete: Live list, create, workspace, and supported lifecycle transitions.
-3. Next: product list/create/update/delete UI using the existing product API.
-4. Order listing and manual payment tracking.
+3. Complete: product list/create/update/delete UI using the existing product API.
+4. Next: order listing and manual payment tracking.
 5. CSV export.
 6. Public ordering form and confirmation using the active Live and order endpoints.
 7. Browser-level critical journey and deployment verification.
