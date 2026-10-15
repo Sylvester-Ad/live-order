@@ -201,6 +201,32 @@ registry.registerPath({
 
 // POST /api/v1/lives/{liveId}/products
 registry.registerPath({
+  method: "get",
+  path: "/api/v1/lives/{liveId}/products",
+  tags: ["Products"],
+  summary: "List products for a Live",
+  description:
+    "Returns products associated with a Live owned by the authenticated creator, oldest first.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({
+      liveId: z.string().openapi({
+        description: "ID of the Live whose products should be returned.",
+      }),
+    }),
+  },
+  responses: {
+    200: jsonResponse(
+      "Products returned successfully.",
+      schemaRef("ProductsSuccessResponse"),
+    ),
+    400: errorResponse("Invalid Live ID."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Live not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
   method: "post",
   path: "/api/v1/lives/{liveId}/products",
   tags: ["Products"],
@@ -227,6 +253,58 @@ registry.registerPath({
     400: errorResponse("Invalid Live ID or product data."),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Live not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/lives/{liveId}/products/{productId}",
+  tags: ["Products"],
+  summary: "Update a product",
+  description:
+    "Updates a product belonging to a Live owned by the authenticated creator.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({
+      liveId: z.string(),
+      productId: z.string(),
+    }),
+    body: {
+      required: true,
+      content: jsonContent(schemaRef("UpdateProductRequest")),
+    },
+  },
+  responses: {
+    200: jsonResponse(
+      "Product updated successfully.",
+      schemaRef("ProductSuccessResponse"),
+    ),
+    400: errorResponse("Invalid product ID or request body."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/lives/{liveId}/products/{productId}",
+  tags: ["Products"],
+  summary: "Delete a product",
+  description:
+    "Deletes a product belonging to a Live owned by the authenticated creator. Products referenced by order history cannot be deleted.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({
+      liveId: z.string(),
+      productId: z.string(),
+    }),
+  },
+  responses: {
+    204: { description: "Product deleted successfully." },
+    400: errorResponse("Invalid product ID."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+    409: errorResponse("Product has order history and cannot be deleted."),
   },
 });
 

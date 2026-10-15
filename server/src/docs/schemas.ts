@@ -14,6 +14,7 @@ import {
 import {
   createProductSchema,
   productResponseSchema,
+  updateProductFieldsSchema,
 } from "../modules/products/products.schemas.js";
 
 import {
@@ -33,6 +34,12 @@ const createProductOpenApiSchema = createProductSchema
   .omit({ options: true })
   .extend({
     options: z.record(z.string(), z.unknown()).optional(),
+  });
+
+const updateProductOpenApiSchema = updateProductFieldsSchema
+  .omit({ options: true })
+  .extend({
+    options: z.record(z.string(), z.unknown()).nullable().optional(),
   });
 
 // OpenAPI representation of the order creation request.
@@ -88,6 +95,10 @@ export const productSuccessSchema = z.object({
   data: productResponseSchema,
 });
 
+export const productsSuccessSchema = z.object({
+  data: z.array(productResponseSchema),
+});
+
 export const orderSuccessSchema = z.object({
   data: orderResponseSchema,
 });
@@ -132,8 +143,10 @@ registry.register("LiveSuccessResponse", liveSuccessSchema);
 registry.register("LivesSuccessResponse", livesSuccessSchema);
 
 registry.register("CreateProductRequest", createProductOpenApiSchema);
+registry.register("UpdateProductRequest", updateProductOpenApiSchema);
 registry.register("ProductResponse", productResponseSchema);
 registry.register("ProductSuccessResponse", productSuccessSchema);
+registry.register("ProductsSuccessResponse", productsSuccessSchema);
 
 registry.register("CreateOrderRequest", createOrderOpenApiSchema);
 registry.register("OrderResponse", orderResponseSchema);
