@@ -1,25 +1,26 @@
 import type { components } from "../types/openapi.generated";
 
 export type ApiErrorBody = components["schemas"]["ErrorResponse"];
-export type ApiErrorCode = string;
 
-export type ApiRequestOptions<TResponseType extends "json" | "text" | "blob" | "arraybuffer" = "json"> = Omit<
-  RequestInit,
-  "body" | "signal"
-> & {
+export type ApiRequestOptions = Omit<RequestInit, "body" | "signal"> & {
   body?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
-  responseType?: TResponseType;
+  responseType?: "json" | "text" | "blob" | "arraybuffer";
   params?: Record<string, string | number | boolean | undefined>;
 };
 
 export class ApiError extends Error {
   readonly status: number;
-  readonly code: ApiErrorCode;
+  readonly code: string;
   readonly details?: unknown;
 
-  constructor(status: number, code: ApiErrorCode, message: string, details?: unknown) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -38,33 +39,32 @@ export class TransportError extends Error {
   }
 }
 
-function buildApiUrl(path: string, params?: Record<string, string | number | boolean | undefined>) {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const url = new URL(normalizedPath, window.location.origin);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-  if (baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) {
-    const target = new URL(baseUrl);
-    target.pathname = `${target.pathname.replace(/\/$/, "")}${normalizedPath}`;
-    url.href = target.href;
-  } else {
-    url.href = `${window.location.origin}${baseUrl}${normalizedPath}`;
-  }
+function getApiUrl(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>,
+) {
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim() || "/api";
+  const base = new URL(
+    configuredBase.endsWith("/") ? configuredBase : `${configuredBase}/`,
+    window.location.origin,
+  );
+  const relativePath = path.replace(/^\/+/, "");
+  const url = new URL(relativePath, base);
 
-  if (params) {
-    for (const [key, value] of Object.entries(params)) {
-      if (value === undefined) {
-        continue;
-      }
-
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value !== undefined) {
       url.searchParams.set(key, String(value));
     }
   }
 
-  return url.toString();
+  return url;
 }
 
-function resolveRequestBody(body: unknown): BodyInit | undefined {
+function serializeBody(body: unknown): BodyInit | undefined {
   if (body === undefined) {
     return undefined;
   }
@@ -87,43 +87,66 @@ function isJsonResponse(response: Response) {
   return contentType.includes("application/json") || contentType.includes("+json");
 }
 
-async function parseJsonBody<T>(response: Response): Promise<T> {
-  const payload = await response.json();
-
-  if (payload && typeof payload === "object" && "error" in payload) {
-    const error = payload.error as ApiErrorBody["error"];
-    throw new ApiError(
-      response.status,
-      error?.code ?? "HTTP_ERROR",
-      error?.message ?? "Request failed",
-      error?.details,
+function apiErrorFromPayload(status: number, payload: unknown): ApiError {
+  if (isRecord(payload) && isRecord(payload.error)) {
+    const error = payload.error;
+    return new ApiError(
+      status,
+      typeof error.code === "string" ? error.code : "HTTP_ERROR",
+      typeof error.message === "string" ? error.message : "Request failed",
+      error.details,
     );
   }
 
-  if (response.ok) {
-    return ("data" in (payload as Record<string, unknown>)
-      ? (payload as { data: T }).data
-      : (payload as T)) as T;
-  }
-
-  throw new ApiError(
-    response.status,
-    "HTTP_ERROR",
-    "Request failed",
-    payload,
-  );
+  return new ApiError(status, "HTTP_ERROR", `Request failed with status ${status}`, payload);
 }
 
-async function parseNonJsonBody<T>(response: Response, responseType: "text" | "blob" | "arraybuffer") {
-  if (responseType === "text") {
-    return (await response.text()) as T;
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  const payload: unknown = await response.json();
+
+  if (!response.ok) {
+    throw apiErrorFromPayload(response.status, payload);
+  }
+
+  if (isRecord(payload) && "data" in payload) {
+    return payload.data as T;
+  }
+
+  return payload as T;
+}
+
+async function parseResponse<T>(response: Response, responseType: NonNullable<ApiRequestOptions["responseType"]>): Promise<T> {
+  if (!response.ok) {
+    if (responseType === "json" && isJsonResponse(response)) {
+      return parseJsonResponse<T>(response);
+    }
+
+    const details = responseType === "blob"
+      ? await response.blob()
+      : responseType === "arraybuffer"
+        ? await response.arrayBuffer()
+        : await response.text();
+
+    throw apiErrorFromPayload(response.status, details);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   if (responseType === "blob") {
     return (await response.blob()) as T;
   }
 
-  return (await response.arrayBuffer()) as T;
+  if (responseType === "arraybuffer") {
+    return (await response.arrayBuffer()) as T;
+  }
+
+  if (responseType === "text" || !isJsonResponse(response)) {
+    return (await response.text()) as T;
+  }
+
+  return parseJsonResponse<T>(response);
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
@@ -140,21 +163,27 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
   const abortListener = () => controller.abort();
-  if (signal) {
-    signal.addEventListener("abort", abortListener, { once: true });
+
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener("abort", abortListener, { once: true });
   }
 
   try {
     const requestHeaders = new Headers(headers);
-    const requestBody = resolveRequestBody(body);
+    const requestBody = serializeBody(body);
 
-    if (requestBody !== undefined && !(requestBody instanceof FormData) && !requestHeaders.has("Content-Type")) {
+    if (
+      requestBody !== undefined &&
+      !(requestBody instanceof FormData) &&
+      !requestHeaders.has("Content-Type")
+    ) {
       requestHeaders.set("Content-Type", "application/json");
     }
 
-    const response = await fetch(buildApiUrl(path, params), {
+    const response = await fetch(getApiUrl(path, params), {
       ...requestInit,
       method,
       body: requestBody,
@@ -163,48 +192,20 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       signal: controller.signal,
     });
 
-    if (!response.ok) {
-      if (responseType === "json" && isJsonResponse(response)) {
-        await parseJsonBody<never>(response);
-      }
-
-      if (responseType !== "json") {
-        const payload = await parseNonJsonBody<string>(response, responseType);
-        throw new ApiError(response.status, "HTTP_ERROR", `Request failed with status ${response.status}`, payload);
-      }
-
-      throw new ApiError(response.status, "HTTP_ERROR", `Request failed with status ${response.status}`);
-    }
-
-    if (responseType === "json") {
-      if (response.status === 204) {
-        return undefined as T;
-      }
-
-      if (isJsonResponse(response)) {
-        return await parseJsonBody<T>(response);
-      }
-
-      const payload = await response.text();
-      return payload as T;
-    }
-
-    return await parseNonJsonBody<T>(response, responseType);
+    return await parseResponse<T>(response, responseType);
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;
     }
 
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new TransportError("Request aborted or timed out", error);
+      throw new TransportError("Request was aborted or timed out", error);
     }
 
     throw new TransportError("Network request failed", error);
   } finally {
-    clearTimeout(timeoutId);
-    if (signal) {
-      signal.removeEventListener("abort", abortListener);
-    }
+    window.clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abortListener);
   }
 }
 
