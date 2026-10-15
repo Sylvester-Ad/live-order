@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ConfirmationDialog } from "./confirmation-dialog";
+import { ConfirmationDialog } from "../../../src/components/ui/confirmation-dialog";
 
 afterEach(() => {
   vi.restoreAllMocks();

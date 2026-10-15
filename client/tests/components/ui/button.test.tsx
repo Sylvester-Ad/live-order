@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { Button } from "./button";
+import { Button } from "../../../src/components/ui/button";
 
 describe("Button", () => {
   it("exposes disabled state and does not invoke its action", () => {

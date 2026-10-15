@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppProviders } from "../../app/providers";
-import { createTestRouter } from "../../app/router";
-import type { Live } from "./api/lives-api";
+import { AppProviders } from "../../../src/app/providers";
+import { createTestRouter } from "../../../src/app/router";
+import type { Live } from "../../../src/features/lives/api/lives-api";
 
 const draftLive: Live = {
   id: "live-1",

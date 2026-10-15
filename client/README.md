@@ -35,9 +35,15 @@ src/
     public-live/       # Public customer storefront
   lib/                 # API transport, query client, formatting helpers
   types/               # Generated API contract types
+tests/
+  app/                 # Application routing and composition
+  components/          # Shared UI behavior
+  features/            # Feature workflows, organized by feature
+  lib/                 # API and infrastructure behavior
+  setup.ts             # Shared Testing Library setup
 ```
 
-Features should own their API functions, query hooks, pages, and tests as they grow. Shared components should contain reusable presentation or accessibility behavior, not feature business rules. Avoid adding directory layers that do not clarify a responsibility.
+Application code stays organized by feature and responsibility; tests live in a dedicated `tests/` tree that mirrors those boundaries. This keeps production modules focused while making the full test suite easy to discover. Features should own their API functions, query hooks, and pages. Shared components should contain reusable presentation or accessibility behavior, not feature business rules. Avoid adding directory layers that do not clarify a responsibility.
 
 ## Routing and authentication
 
@@ -69,6 +75,8 @@ The backend owns prices, totals, validation, status transitions, and persisted s
 ## Testing
 
 Use Vitest and Testing Library for user-visible behavior. Test the API boundary with mocked `fetch` responses that match the backend envelope. Test route behavior with a memory router and isolated QueryClient instances. Cover loading, success, empty, error, and unauthorized states where they apply. Avoid asserting internal component structure when accessible behavior can be tested instead.
+
+Client test files are under `tests/`, grouped by app, shared components, feature, or library. Vitest is scoped to `tests/**/*.test.{ts,tsx}` and loads common matchers and cleanup from `tests/setup.ts`.
 
 The Live feature suite covers list success/empty/error states, workspace lookup, create validation and success/error feedback, activation, confirmed ending, and rejected transitions that preserve server state.
 

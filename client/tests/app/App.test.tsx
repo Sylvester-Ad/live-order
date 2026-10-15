@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppProviders } from "./providers";
-import { createTestRouter } from "./router";
+import { AppProviders } from "../../src/app/providers";
+import { createTestRouter } from "../../src/app/router";
 
 function renderRoute(path: string) {
   return render(
