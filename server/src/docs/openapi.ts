@@ -44,6 +44,50 @@ registry.registerPath({
 // POST /api/v1/creator/access
 registry.registerPath({
   method: "post",
+  path: "/api/v1/lives/{liveId}/products/{productId}/image",
+  tags: ["Products"],
+  summary: "Upload or replace a product image",
+  description: "Uploads a JPEG, PNG, or WebP image up to 5 MB for a product owned by the authenticated creator.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ liveId: z.string(), productId: z.string() }),
+    body: {
+      required: true,
+      content: {
+        "multipart/form-data": {
+          schema: z.object({ image: z.string().openapi({ type: "string", format: "binary" }) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: jsonResponse("Image uploaded successfully.", schemaRef("ProductSuccessResponse")),
+    400: errorResponse("Invalid image upload."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+    413: errorResponse("Image exceeds the 5 MB limit."),
+    502: errorResponse("Image storage provider failed."),
+    503: errorResponse("Image storage is not configured."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/lives/{liveId}/products/{productId}/image",
+  tags: ["Products"],
+  summary: "Remove a product image",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ liveId: z.string(), productId: z.string() }) },
+  responses: {
+    200: jsonResponse("Image removed successfully.", schemaRef("ProductSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+    502: errorResponse("Image storage provider failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/v1/creator/access",
   tags: ["Authentication"],
   summary: "Creator login",
@@ -232,7 +276,7 @@ registry.registerPath({
   tags: ["Products"],
   summary: "Create a product",
   description:
-    "Adds a product to a Live owned by the authenticated creator. Prices are represented in pesewas.",
+    "Adds a product to a Live owned by the authenticated creator. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -315,7 +359,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Place an order",
   description:
-    "Creates a customer order for an active Live. Product prices and order totals are calculated by the backend. No creator session is required.",
+    "Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. No creator session is required.",
   request: {
     params: z.object({
       liveId: z.string().openapi({
@@ -332,8 +376,9 @@ registry.registerPath({
       "Order created successfully.",
       schemaRef("OrderSuccessResponse"),
     ),
-    400: errorResponse("Invalid Live ID or order data."),
-    404: errorResponse("Live or requested product not found."),
+    400: errorResponse("Invalid order data, product, or selected product options."),
+    404: errorResponse("Live not found."),
+    409: errorResponse("Live is inactive or product stock is insufficient."),
   },
 });
 

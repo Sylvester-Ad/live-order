@@ -23,7 +23,7 @@ const result = spawnSync(
     stdio: "inherit",
     env: {
       ...process.env,
-      DATABASE_URL: "file:../data/test.db",
+      DATABASE_URL: "file:./data/test.db",
       LIVEORDER_DATABASE_PATH: "../data/test.db",
       NODE_ENV: "test",
     },

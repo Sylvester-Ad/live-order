@@ -32,8 +32,9 @@ src/
     auth/              # Creator login, session hooks, route protection
     dashboard/         # Seller dashboard and Lives listing
     lives/             # Live workspace and Live API access
-    products/          # Live-scoped product CRUD and product API access
-    public-live/       # Public customer storefront
+    products/          # Live-scoped CRUD, options, stock and image management
+    orders/             # Public customer order submission
+    public-live/       # Public product storefront and order form
   lib/                 # API transport, query client, formatting helpers
   types/               # Generated API contract types
 tests/
@@ -54,7 +55,7 @@ Application code stays organized by feature and responsibility; tests live in a 
 - `/lives/new` creates a Live using its name, then opens `/lives/:liveId`.
 - `/lives/:liveId` resolves the selected Live from `GET /api/v1/lives`. The backend has no authenticated single-Live read endpoint, so the workspace refreshes the creator-owned list on entry rather than trusting an old cache.
 - Draft Lives can be activated and active Lives can be ended using `PATCH /api/v1/lives/:liveId`. Ending requires confirmation. The interface offers no transition from `ENDED`.
-- `/lives/:liveId/products` lists products scoped to that Live. `/new` creates a product and `/:productId/edit` updates it; editing resolves the product from the authenticated per-Live product list.
+- `/lives/:liveId/products` lists products scoped to that Live, including stock and the primary image. `/new` creates a product and `/:productId/edit` updates it; editing resolves the product from the authenticated per-Live product list. Image upload and removal are available after the product has been saved.
 - Seller routes are wrapped by `RequireCreator`, which restores the session through `GET /api/v1/creator/me` before rendering private pages.
 - Logout calls `POST /api/v1/creator/logout`, then clears the TanStack Query cache.
 - The cookie is HTTP-only. Never read or persist its value in JavaScript.
@@ -68,7 +69,13 @@ Use `api` from `src/lib/api-client.ts` for all HTTP requests. Pass paths relativ
 
 Use TanStack Query for server-owned data. Query keys are defined by feature hooks. Mutations should invalidate or update relevant query data; do not mirror server data into local state. Keep form drafts and transient UI state local to the component or feature.
 
-The backend owns prices, totals, validation, status transitions, and persisted state. API money is integer pesewas; use `formatPesewas` for display and `parseCedisToPesewas` for exact decimal GHS input. Product `options` are arbitrary JSON objects; the seller product editor accepts JSON and preserves options on updates unless they are deliberately changed or cleared. Product deletion is rejected by the backend when order history references the product (`409 PRODUCT_IN_USE`), and the UI keeps the product visible in that case. Product operations are not restricted by Live status in the current backend.
+The backend owns prices, totals, stock, validation, status transitions, and persisted state. API money is integer pesewas; use `formatPesewas` for display and `parseCedisToPesewas` for exact decimal GHS input. The seller options editor stores groups as an object of string arrays, for example `{ "Size": ["S", "M"], "Colour": ["Black", "White"] }`. Existing string-array groups load into the editor; unrecognized legacy JSON is preserved unless the seller explicitly replaces it. Option choices do not have separate prices or stock. Product stock is a non-negative integer and defaults to zero, including for existing products migrated from the earlier schema.
+
+The backend accepts image uploads at `POST /api/v1/lives/:liveId/products/:productId/image` and removal at `DELETE` on the same path. Uploads are server-mediated JPEG, PNG, or WebP files up to 5 MB; only the primary image is exposed to seller and public responses. Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the repository-root `.env`; these credentials must never use a `VITE_` prefix. The server stores provider IDs separately from public URLs so another storage adapter can be added without changing product features.
+
+Storage and database writes cannot be atomic together. Replacement stores the new image first, commits it as primary, then attempts to delete the former object. A failed provider deletion leaves a non-primary record for later cleanup. Product deletion removes image records with the product, then attempts provider cleanup; a provider outage at that point can leave an untracked Cloudinary asset.
+
+The public `/live/:slug` route supports product quantities, configured option choices, customer contact and delivery details, and order submission. The browser shows an estimated total, while the server calculates the saved total from current prices. On order creation the server atomically decrements stock with a conditional database update inside the order transaction; `409 INSUFFICIENT_STOCK` is recoverable and the storefront can refresh availability. Unpaid orders consume stock too. The current order lifecycle has no cancellation/restock operation; marking an order paid does not alter stock. Product deletion is rejected when order history references the product (`409 PRODUCT_IN_USE`), and the UI keeps the product visible in that case.
 
 ## Styling
 
@@ -82,16 +89,15 @@ Client test files are under `tests/`, grouped by app, shared components, feature
 
 The Live feature suite covers list success/empty/error states, workspace lookup, create validation and success/error feedback, activation, confirmed ending, and rejected transitions that preserve server state.
 
-The product suite covers Live-scoped list/loading/empty/error states, create and update payloads, backend validation failures, exact GHS-to-pesewas conversion, JSON option validation and preservation, successful deletion, and deletion rejected for order history.
+The product suite covers Live-scoped list/loading/empty/error states, create and update payloads, stock and option validation, exact GHS-to-pesewas conversion, option-group editing and legacy preservation, image uploads, successful deletion, and deletion rejected for order history. Public storefront tests cover availability, option and quantity selection, order submission, and stock-conflict recovery. Backend integration tests cover image storage lifecycle, stock rollback, option validation, authoritative totals, and concurrent attempts to purchase the last unit.
 
 Current product stages:
 
 1. Complete: foundation, creator auth, session restoration, and a real Lives dashboard.
 2. Complete: Live list, create, workspace, and supported lifecycle transitions.
 3. Complete: product list/create/update/delete UI using the existing product API.
-4. Next: order listing and manual payment tracking.
+4. Next: seller order listing and manual payment tracking.
 5. CSV export.
-6. Public ordering form and confirmation using the active Live and order endpoints.
-7. Browser-level critical journey and deployment verification.
+6. Browser-level critical journey and deployment verification.
 
 The product and order route placeholders are intentional. Do not present placeholder pages as completed functionality or use fake data to fill them.

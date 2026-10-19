@@ -466,7 +466,9 @@ The current backend supports:
 
 * Product name.
 * Price in integer pesewas.
-* Optional product options represented as JSON.
+* Optional product option groups stored as an object whose values are arrays of selectable strings.
+* A non-negative integer stock quantity. Existing products migrate to zero stock so they are unavailable until a creator sets a quantity.
+* One primary product image, stored through the Cloudinary adapter and represented separately by a `ProductImage` record.
 
 Examples of options include:
 
@@ -474,7 +476,13 @@ Examples of options include:
 * Colour: Black, White, Blue.
 * Other product-specific selections.
 
-The design should make common options understandable without exposing JSON syntax to the seller.
+The seller interface edits option groups and choices visually and stores them as a JSON object such as `{ "Size": ["S", "M"], "Colour": ["Black", "White"] }`. Choices do not have independent prices or stock. Existing JSON that is already an object of string arrays can be edited directly. Other legacy JSON is preserved on unrelated product edits; a creator must deliberately choose to replace it before it is changed.
+
+Creators can set one stock count for the whole product. Option choices do not represent separately stocked variants. New and migrated products default to zero stock.
+
+Product images are uploaded to the backend as JPEG, PNG, or WebP files up to 5 MB. The server validates MIME type and file signature before sending the image through its storage adapter. Cloudinary API credentials are server-only. `ProductImage` stores the public URL separately from the provider and provider object identifier; the initial UI exposes one primary image while the relation permits more images later.
+
+Storage and database writes cannot be atomic together. Replacing an image stores the new object and commits it as primary before deleting the previous object; failed old-object cleanup leaves a non-primary database record. Product deletion removes image rows with the product before attempting provider cleanup, so a provider outage during deletion can leave an untracked remote asset.
 
 ### Add-product form
 
@@ -502,19 +510,13 @@ Each product card or row should show:
 
 * Product name.
 * Price.
-* Options or variants when available.
+* Configured option groups and choices.
+* Current stock, with out-of-stock and low-stock feedback.
+* The primary image when present, with a neutral fallback.
 
 On mobile, prefer simple cards. On desktop, a compact table or grid may be appropriate.
 
-### Important backend limitation
-
-The current API supports product creation but does not yet expose a dedicated endpoint to list products independently or edit and delete existing products.
-
-Before implementing a fully functional product-management screen, verify how product information can be obtained from existing API responses.
-
-If listing products is not adequately supported, request a backend endpoint rather than using hardcoded data or making unsupported assumptions.
-
-Do not show edit or delete actions that do not work.
+Product list, create, update, delete, stock, and image operations are available in the current API. Product deletion is rejected when the product has order history. Image upload is authenticated and accepts JPEG, PNG, and WebP files up to 5 MB.
 
 ---
 
@@ -730,9 +732,7 @@ Each product should show:
 
 Use simple product cards with readable prices and well-defined interactions.
 
-Product images must not be assumed because the current backend does not define product image support.
-
-Use a clean text-first layout until image functionality exists.
+Show the product's primary image where present and a neutral fallback where it is absent.
 
 ### Order composition
 
@@ -1100,25 +1100,27 @@ The current backend provides the following relevant operations.
 | Create Live             | `POST /api/v1/lives`                      | Authenticated                              |
 | Change Live status      | `PATCH /api/v1/lives/:liveId`             | Authenticated                              |
 | Create product          | `POST /api/v1/lives/:liveId/products`     | Authenticated                              |
+| List Live products      | `GET /api/v1/lives/:liveId/products`      | Authenticated                              |
+| Update product          | `PATCH /api/v1/lives/:liveId/products/:productId` | Authenticated                    |
+| Delete product          | `DELETE /api/v1/lives/:liveId/products/:productId` | Authenticated                  |
+| Upload/replace image    | `POST /api/v1/lives/:liveId/products/:productId/image` | Authenticated               |
+| Remove product image    | `DELETE /api/v1/lives/:liveId/products/:productId/image` | Authenticated               |
 | List Live orders        | `GET /api/v1/lives/:liveId/orders`        | Authenticated                              |
 | Submit public order     | `POST /api/v1/lives/:liveId/orders`       | Public                                     |
 | Mark order paid         | `PATCH /api/v1/orders/:orderId`           | Authenticated                              |
 | Export Live orders      | `GET /api/v1/lives/:liveId/orders/export` | Authenticated                              |
 | Get public Live         | `GET /api/v1/public/lives/:slug`          | Public                                     |
 
-The backend implementation and OpenAPI specification should be checked before implementation if either changes.
+The backend implementation and OpenAPI specification should be checked before implementation if either changes. Product responses include stock quantity and nullable primary image metadata. Public Live products include stock quantity and an `available` flag.
 
 ## 9.1 Important Limitations
 
 The current API does not yet provide:
 
-* A dedicated endpoint to list products independently.
-* Product update or deletion.
 * Live deletion.
 * A dedicated order-detail endpoint.
-* Order cancellation.
+* Order cancellation or stock restoration.
 * Automated payment verification.
-* Inventory tracking.
 * Automated fulfilment.
 
 The frontend must not pretend these capabilities exist.
@@ -1144,6 +1146,8 @@ Use safe conversions between user-entered cedi amounts and integer pesewas.
 
 The server calculates authoritative order totals.
 
+The order endpoint uses current product prices and decrements the requested stock atomically with order creation. A conditional stock update inside the database transaction prevents two concurrent requests from purchasing the same remaining units; an insufficient-stock response is `409 INSUFFICIENT_STOCK`. Failed order creation rolls back all stock decrements. Orders consume stock at creation while still PENDING. There is no cancellation lifecycle, so the current API cannot restore stock; payment-status updates never change stock.
+
 ## 10.2 Live Status
 
 The supported status flow is:
@@ -1164,11 +1168,7 @@ The frontend should help the customer provide valid information, but backend val
 
 ## 10.4 Product Options
 
-Product options and selected order options are represented by structured JSON data.
-
-The UI should translate supported option structures into understandable controls.
-
-If an option format is unsupported or ambiguous, do not silently discard the data.
+Product option groups are stored as `Record<string, string[]>`; each customer selection is a record from a configured group name to one of its configured choices. Choices are optional, but any submitted choice must belong to that product's current option group. The backend validates selections at order time. Existing legacy JSON that does not match this shape remains preserved until the seller explicitly replaces it; it is not silently mapped or discarded.
 
 ## 10.5 Privacy
 
@@ -1255,13 +1255,14 @@ The goal is a complete, working journey backed by real API data.
 * Active and ended states.
 * Confirmation and feedback.
 
-## Stage 5: Products
+## Stage 5: Products and stock
 
 * Add-product form.
 * Price conversion.
-* Product options.
-* Product listing, subject to backend capability.
-* Backend endpoint additions if required.
+* Product options as visual group and choice controls.
+* Product image upload, replacement, and removal through a provider adapter.
+* Stock quantity editing and availability display.
+* Product listing, creation, updating, and deletion.
 
 ## Stage 6: Orders and Payments
 
@@ -1280,12 +1281,9 @@ The goal is a complete, working journey backed by real API data.
 
 ## Stage 8: Public Ordering
 
-* Public Live page.
-* Product selection.
-* Customer form.
-* Order submission.
-* Confirmation page.
-* Unavailable Live state.
+* Complete: public Live page, product and option selection, quantities, customer details, stock validation, submission, confirmation, and stock-conflict recovery.
+
+Next, implement seller order listing and manual payment tracking, then CSV export and browser-level critical journey verification.
 
 ## Stage 9: Quality and Release Readiness
 
@@ -1388,7 +1386,8 @@ On mobile, optimize for touch interactions, compact navigation, readable forms, 
 * Orders can be exported as CSV.
 * Payment verification is not automated.
 * TikTok comments are not automatically imported.
-* Product images, inventory tracking, and unsupported editing operations must not be assumed.
+* Stock is tracked once per product; options are not separately inventoried.
+* Product image storage uses a replaceable server-side provider adapter.
 * Use believable interface examples, but distinguish design placeholders from actual backend capabilities.
 
 ## Desired outcome

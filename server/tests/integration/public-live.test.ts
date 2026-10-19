@@ -35,7 +35,7 @@ describe("GET /api/v1/public/lives/:slug", () => {
   it("returns an active Live and its products without authentication", async () => {
     const live = await createLive("ACTIVE");
 
-    await prisma.product.create({
+    const product = await prisma.product.create({
       data: {
         liveId: live.id,
         name: "Black T-shirt",
@@ -44,6 +44,15 @@ describe("GET /api/v1/public/lives/:slug", () => {
           sizes: ["S", "M", "L", "XL"],
           colors: ["Black", "White"],
         },
+      },
+    });
+
+    await prisma.productImage.create({
+      data: {
+        productId: product.id,
+        url: "https://images.example/shirt.png",
+        storageId: "test/shirt",
+        provider: "CLOUDINARY",
       },
     });
 
@@ -62,6 +71,12 @@ describe("GET /api/v1/public/lives/:slug", () => {
     expect(response.body.data.products[0]).toMatchObject({
       name: "Black T-shirt",
       price: 5000,
+      stockQuantity: 0,
+      available: false,
+      image: {
+        id: expect.any(String),
+        url: "https://images.example/shirt.png",
+      },
     });
 
     expect(response.body.data.products).toHaveLength(1);

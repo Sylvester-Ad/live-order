@@ -19,8 +19,8 @@ export function parseCedisToPesewas(input: string): PesewasParseResult {
     return { ok: false, message: "Price must be greater than zero." };
   }
 
-  if (pesewas > BigInt(Number.MAX_SAFE_INTEGER)) {
-    return { ok: false, message: "This price is too large to represent safely." };
+  if (pesewas > 2_147_483_647n) {
+    return { ok: false, message: "Price exceeds the maximum supported amount." };
   }
 
   return { ok: true, value: Number(pesewas) };

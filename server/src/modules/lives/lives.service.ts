@@ -93,6 +93,12 @@ export async function getPublicLiveBySlug(slug: string) {
           name: true,
           price: true,
           options: true,
+          stockQuantity: true,
+          images: {
+            where: { isPrimary: true },
+            select: { id: true, url: true, createdAt: true },
+            take: 1,
+          },
         },
         orderBy: {
           createdAt: "asc",
@@ -105,5 +111,16 @@ export async function getPublicLiveBySlug(slug: string) {
     throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
   }
 
-  return live;
+  return {
+    ...live,
+    products: live.products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      options: product.options,
+      stockQuantity: product.stockQuantity,
+      available: product.stockQuantity > 0,
+      image: product.images[0] ?? null,
+    })),
+  };
 }

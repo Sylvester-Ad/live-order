@@ -113,10 +113,18 @@ export function ProductsPage() {
             <li key={product.id}>
               <Card className="h-full">
                 <CardContent className="flex h-full flex-col">
+                  {product.image ? (
+                    <img alt={`${product.name}`} className="mb-4 aspect-4/3 w-full rounded-panel bg-canvas object-cover" src={product.image.url} />
+                  ) : (
+                    <div className="mb-4 grid aspect-4/3 place-items-center rounded-panel bg-canvas text-sm text-ink-muted">No product image</div>
+                  )}
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <h2 className="min-w-0 break-words text-lg font-bold text-ink">{product.name}</h2>
                     <p className="shrink-0 text-lg font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
                   </div>
+                  <p className={`mt-2 text-sm font-semibold ${product.stockQuantity === 0 ? "text-danger-700" : product.stockQuantity <= 5 ? "text-status-warn-ink" : "text-ink-muted"}`}>
+                    {product.stockQuantity === 0 ? "Out of stock" : product.stockQuantity <= 5 ? `Low stock · ${product.stockQuantity} left` : `${product.stockQuantity} in stock`}
+                  </p>
                   <ProductOptions options={product.options} />
                   <div className="mt-auto flex flex-wrap gap-2 pt-5">
                     <Link to={`/lives/${liveId}/products/${encodeURIComponent(product.id)}/edit`}>
@@ -175,7 +183,7 @@ function ProductOptions({ options }: { options: unknown }) {
       {entries.map(([name, value]) => (
         <div className="contents" key={name}>
           <dt className="font-semibold text-ink-muted">{name}</dt>
-          <dd className="break-words text-ink">{JSON.stringify(value)}</dd>
+          <dd className="break-words text-ink">{Array.isArray(value) && value.every((choice) => typeof choice === "string") ? value.join(" · ") : "Existing options"}</dd>
         </div>
       ))}
     </dl>

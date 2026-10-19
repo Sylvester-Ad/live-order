@@ -23,6 +23,8 @@ function product(overrides: Partial<Product> = {}): Product {
     name: "Classic T-shirt",
     price: 2550,
     options: { sizes: ["S", "M"], colors: ["Black", "White"] },
+    stockQuantity: 8,
+    image: null,
     createdAt: "2026-10-12T10:00:00.000Z",
     updatedAt: "2026-10-12T10:00:00.000Z",
     ...overrides,
@@ -54,8 +56,8 @@ function productFetch(initialProducts: Product[] = [], rejectDelete = true) {
       return response({ data: products });
     }
     if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { name: string; price: number; options?: unknown };
-      const created = product({ id: "product-new", ...body });
+      const body = JSON.parse(String(init.body)) as { name: string; price: number; stockQuantity: number; options?: unknown };
+      const created = product({ id: "product-new", ...body, options: body.options ?? null });
       products = [...products, created];
       return response({ data: created }, 201);
     }
@@ -71,6 +73,16 @@ function productFetch(initialProducts: Product[] = [], rejectDelete = true) {
       }
       products = products.filter((item) => item.id !== "product-1");
       return new Response(null, { status: 204 });
+    }
+    if (url.endsWith("/api/v1/lives/live-1/products/product-1/image") && init?.method === "POST") {
+      const updated = product({ ...products[0], image: { id: "image-1", url: "https://images.example/product.png", createdAt: "2026-10-12T10:00:00.000Z" } });
+      products = products.map((item) => item.id === updated.id ? updated : item);
+      return response({ data: updated });
+    }
+    if (url.endsWith("/api/v1/lives/live-1/products/product-1/image") && init?.method === "DELETE") {
+      const updated = product({ ...products[0], image: null });
+      products = products.map((item) => item.id === updated.id ? updated : item);
+      return response({ data: updated });
     }
     throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
   });
@@ -105,7 +117,8 @@ describe("seller product management", () => {
     expect(screen.getByText("Friday fashion")).toBeInTheDocument();
     expect(screen.getByText("Classic T-shirt")).toBeInTheDocument();
     expect(screen.getByText("GH₵ 25.50")).toBeInTheDocument();
-    expect(screen.getByText('["S","M"]')).toBeInTheDocument();
+    expect(screen.getByText("8 in stock")).toBeInTheDocument();
+    expect(screen.getByText("S · M")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/lives/live-1/products"))).toBe(true);
   });
 
@@ -164,16 +177,19 @@ describe("seller product management", () => {
     expect(screen.queryByRole("heading", { name: "No products yet" })).not.toBeInTheDocument();
   });
 
-  it("creates a product using pesewas and serialized options", async () => {
+  it("creates a product with stock and visually configured choices", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
     renderPath("/lives/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "  Cotton shirt " } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.50" } });
-    fireEvent.change(screen.getByLabelText("Product options (optional)"), {
-      target: { value: '{"sizes":["S","M"]}' },
-    });
+    fireEvent.change(screen.getByLabelText("Stock quantity"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add option group" }));
+    fireEvent.change(screen.getByLabelText("Option group 1 name"), { target: { value: "Size" } });
+    fireEvent.change(screen.getByLabelText("Size choice 1"), { target: { value: "S" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add choice" }));
+    fireEvent.change(screen.getByLabelText("Size choice 2"), { target: { value: "M" } });
     fireEvent.click(screen.getByRole("button", { name: "Create product" }));
 
     expect(await screen.findByText("Product created.")).toBeInTheDocument();
@@ -182,25 +198,26 @@ describe("seller product management", () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       name: "Cotton shirt",
       price: 2550,
-      options: { sizes: ["S", "M"] },
+      stockQuantity: 12,
+      options: { Size: ["S", "M"] },
     });
     expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith("/api/v1/lives/live-1/products") && init?.method === "GET",
     )).toBe(true); // The destination list is refreshed after creation succeeds.
   });
 
-  it("rejects invalid price and options before sending a create request", async () => {
+  it("rejects invalid price and unfinished options before sending a create request", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
     renderPath("/lives/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "A product" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "1.001" } });
-    fireEvent.change(screen.getByLabelText("Product options (optional)"), { target: { value: "not json" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add option group" }));
     fireEvent.click(screen.getByRole("button", { name: "Create product" }));
 
     expect(await screen.findByText("Enter an amount with up to two decimal places.")).toBeInTheDocument();
-    expect(screen.getByText("Enter valid JSON for product options.")).toBeInTheDocument();
+    expect(screen.getByText("Enter a name for every option group.")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
@@ -221,7 +238,7 @@ describe("seller product management", () => {
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "12.00" } });
     fireEvent.click(screen.getByRole("button", { name: "Create product" }));
 
-    expect(await screen.findByText("The server rejected one or more product fields. Check the name, price, and options, then try again.")).toBeInTheDocument();
+    expect(await screen.findByText("The server rejected one or more product fields. Check the name, price, stock and options, then try again.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create product" })).toBeEnabled();
   });
 
@@ -238,8 +255,8 @@ describe("seller product management", () => {
     expect(await screen.findByText("Product changes saved.")).toBeInTheDocument();
     expect(screen.getByText("GH₵ 30.00")).toBeInTheDocument();
     const updateCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
-    expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ name: "Cotton T-shirt", price: 3000 });
-    expect(screen.getByText('["S","M"]')).toBeInTheDocument();
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ name: "Cotton T-shirt", price: 3000, stockQuantity: 8 });
+    expect(screen.getByText("S · M")).toBeInTheDocument();
   });
 
   it("clears options only when the creator chooses to clear them", async () => {
@@ -252,7 +269,7 @@ describe("seller product management", () => {
 
     await screen.findByText("Product changes saved.");
     const updateCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
-    expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ name: "Classic T-shirt", price: 2550, options: null });
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ name: "Classic T-shirt", price: 2550, stockQuantity: 8, options: null });
   });
 
   it("keeps edits unsaved and stays on the form when the update fails", async () => {
@@ -304,5 +321,23 @@ describe("seller product management", () => {
     expect(screen.getByText("Classic T-shirt")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true));
+  });
+
+  it("uploads a product image through multipart form data and updates the saved preview", async () => {
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:preview" });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => undefined });
+    const fetchMock = productFetch([product()]);
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/product-1/edit");
+
+    const file = new File(["image"], "shirt.png", { type: "image/png" });
+    fireEvent.change(await screen.findByLabelText("Choose an image"), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload image" }));
+
+    expect(await screen.findByText("Product image updated.")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Classic T-shirt product preview" })).toHaveAttribute("src", "https://images.example/product.png");
+    const uploadCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/products/product-1/image") && init?.method === "POST");
+    expect(uploadCall?.[1]?.body).toBeInstanceOf(FormData);
+    expect((uploadCall?.[1]?.body as FormData).get("image")).toBe(file);
   });
 });

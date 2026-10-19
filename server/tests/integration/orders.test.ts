@@ -57,9 +57,10 @@ describe("Orders API", () => {
       .send({
         name: "Classic T-shirt",
         price: 10000,
+        stockQuantity: 20,
         options: {
-          sizes: ["S", "M", "L"],
-          colors: ["Black", "White"],
+          Size: ["S", "M", "L"],
+          Colour: ["Black", "White"],
         },
       });
 
@@ -72,6 +73,7 @@ describe("Orders API", () => {
       .send({
         name: "Baseball Cap",
         price: 5000,
+        stockQuantity: 10,
       });
 
     expect(capResponse.status).toBe(201);
@@ -100,8 +102,8 @@ describe("Orders API", () => {
             productId: tShirtId,
             quantity: 2,
             selectedOptions: {
-              size: "M",
-              color: "Black",
+              Size: "M",
+              Colour: "Black",
             },
           },
           {
@@ -131,6 +133,8 @@ describe("Orders API", () => {
 
     expect(order).not.toBeNull();
     expect(order?.totalAmount).toBe(25000);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(18);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(9);
     expect(order?.items).toHaveLength(2);
 
     expect(order?.items).toEqual(
@@ -233,5 +237,61 @@ describe("Orders API", () => {
       });
 
     expect(response.status).toBe(400);
+  });
+
+  it("rejects insufficient stock without creating an order or decrementing any item", async () => {
+    await prisma.product.update({ where: { id: tShirtId }, data: { stockQuantity: 1 } });
+    const before = await prisma.order.count();
+
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [
+          { productId: capId, quantity: 2 },
+          { productId: tShirtId, quantity: 2 },
+        ],
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("INSUFFICIENT_STOCK");
+    expect(await prisma.order.count()).toBe(before);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(10);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(1);
+  });
+
+  it("rejects option choices that are not configured for the product", async () => {
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: tShirtId, quantity: 1, selectedOptions: { Size: "XXL" } }],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("INVALID_PRODUCT_OPTIONS");
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(20);
+  });
+
+  it("allows only one concurrent request to buy the last unit", async () => {
+    await prisma.product.update({ where: { id: capId }, data: { stockQuantity: 1 } });
+    const makeOrder = () => request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: capId, quantity: 1 }],
+      });
+
+    const results = await Promise.all([makeOrder(), makeOrder()]);
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    expect(results.find((result) => result.status === 409)?.body.error.code).toBe("INSUFFICIENT_STOCK");
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(0);
   });
 });

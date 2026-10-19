@@ -1,18 +1,5 @@
 import { z } from "zod";
 
-const jsonValueSchema: z.ZodType<
-  string | number | boolean | null | { [key: string]: unknown } | unknown[]
-> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValueSchema),
-    z.record(z.string(), jsonValueSchema),
-  ]),
-);
-
 export const createOrderSchema = z.object({
   customerName: z.string().trim().min(1).max(100),
   customerPhone: z.string().trim().min(7).max(30),
@@ -23,9 +10,7 @@ export const createOrderSchema = z.object({
       z.object({
         productId: z.uuid(),
         quantity: z.number().int().min(1).max(100),
-        selectedOptions: z
-          .record(z.string(), jsonValueSchema)
-          .optional(),
+        selectedOptions: z.record(z.string(), z.string()).optional(),
       }),
     )
     .min(1)

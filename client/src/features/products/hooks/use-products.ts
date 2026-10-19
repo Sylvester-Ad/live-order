@@ -70,3 +70,33 @@ export function useDeleteProduct() {
     },
   });
 }
+
+export function useUploadProductImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ liveId, productId, file }: { liveId: string; productId: string; file: File }) =>
+      productsApi.uploadImage(liveId, productId, file),
+    onSuccess: async (updatedProduct, { liveId }) => {
+      const queryKey = productsQueryKey(liveId);
+      queryClient.setQueryData<Product[]>(queryKey, (products) =>
+        products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
+      );
+      await queryClient.invalidateQueries({ queryKey, exact: true });
+    },
+  });
+}
+
+export function useRemoveProductImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ liveId, productId }: { liveId: string; productId: string }) =>
+      productsApi.removeImage(liveId, productId),
+    onSuccess: async (updatedProduct, { liveId }) => {
+      const queryKey = productsQueryKey(liveId);
+      queryClient.setQueryData<Product[]>(queryKey, (products) =>
+        products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
+      );
+      await queryClient.invalidateQueries({ queryKey, exact: true });
+    },
+  });
+}

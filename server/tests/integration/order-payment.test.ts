@@ -47,6 +47,7 @@ describe("Order payment API", () => {
         liveId: live.id,
         name: "Test Shirt",
         price: 10000,
+        stockQuantity: 3,
       },
     });
 
@@ -133,6 +134,7 @@ describe("Order payment API", () => {
     });
 
     expect(order.paymentStatus).toBe("PAID");
+    expect((await prisma.product.findFirstOrThrow({ where: { name: "Test Shirt" } })).stockQuantity).toBe(3);
   });
 
   it("allows an order to be marked as paid more than once", async () => {
@@ -149,6 +151,7 @@ describe("Order payment API", () => {
     expect(firstResponse.status).toBe(200);
     expect(secondResponse.status).toBe(200);
     expect(secondResponse.body.data.paymentStatus).toBe("PAID");
+    expect((await prisma.product.findFirstOrThrow({ where: { name: "Test Shirt" } })).stockQuantity).toBe(3);
   });
 
   it("rejects unauthenticated requests", async () => {

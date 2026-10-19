@@ -43,6 +43,159 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lives/{liveId}/products/{productId}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload or replace a product image
+         * @description Uploads a JPEG, PNG, or WebP image up to 5 MB for a product owned by the authenticated creator.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        image: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Image uploaded successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid image upload. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image exceeds the 5 MB limit. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image storage provider failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image storage is not configured. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /** Remove a product image */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Image removed successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image storage provider failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/creator/access": {
         parameters: {
             query?: never;
@@ -488,7 +641,7 @@ export interface paths {
         put?: never;
         /**
          * Create a product
-         * @description Adds a product to a Live owned by the authenticated creator. Prices are represented in pesewas.
+         * @description Adds a product to a Live owned by the authenticated creator. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.
          */
         post: {
             parameters: {
@@ -747,7 +900,7 @@ export interface paths {
         put?: never;
         /**
          * Place an order
-         * @description Creates a customer order for an active Live. Product prices and order totals are calculated by the backend. No creator session is required.
+         * @description Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. No creator session is required.
          */
         post: {
             parameters: {
@@ -774,7 +927,7 @@ export interface paths {
                         "application/json": components["schemas"]["OrderSuccessResponse"];
                     };
                 };
-                /** @description Invalid Live ID or order data. */
+                /** @description Invalid order data, product, or selected product options. */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -783,8 +936,17 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description Live or requested product not found. */
+                /** @description Live not found. */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Live is inactive or product stock is insufficient. */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1024,15 +1186,17 @@ export interface components {
         CreateProductRequest: {
             name: string;
             price: number;
+            stockQuantity?: number;
             options?: {
-                [key: string]: unknown;
+                [key: string]: string[];
             };
         };
         UpdateProductRequest: {
             name?: string;
             price?: number;
+            stockQuantity?: number;
             options?: {
-                [key: string]: unknown;
+                [key: string]: string[];
             } | null;
         };
         ProductResponse: {
@@ -1041,6 +1205,14 @@ export interface components {
             name: string;
             price: number;
             options?: unknown;
+            stockQuantity: number;
+            image: {
+                id: string;
+                /** Format: uri */
+                url: string;
+                /** Format: date-time */
+                createdAt: string | null;
+            } | null;
             /** Format: date-time */
             createdAt: string | null;
             /** Format: date-time */
@@ -1053,6 +1225,14 @@ export interface components {
                 name: string;
                 price: number;
                 options?: unknown;
+                stockQuantity: number;
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
                 /** Format: date-time */
                 createdAt: string | null;
                 /** Format: date-time */
@@ -1066,6 +1246,14 @@ export interface components {
                 name: string;
                 price: number;
                 options?: unknown;
+                stockQuantity: number;
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
                 /** Format: date-time */
                 createdAt: string | null;
                 /** Format: date-time */
@@ -1081,7 +1269,7 @@ export interface components {
                 productId: string;
                 quantity: number;
                 selectedOptions?: {
-                    [key: string]: unknown;
+                    [key: string]: string;
                 };
             }[];
         };
@@ -1164,6 +1352,15 @@ export interface components {
                 name: string;
                 price: number;
                 options?: unknown;
+                stockQuantity: number;
+                available: boolean;
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
             }[];
         };
         PublicLiveSuccessResponse: {
@@ -1178,6 +1375,15 @@ export interface components {
                     name: string;
                     price: number;
                     options?: unknown;
+                    stockQuantity: number;
+                    available: boolean;
+                    image: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                    } | null;
                 }[];
             };
         };

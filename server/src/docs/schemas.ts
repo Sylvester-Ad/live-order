@@ -33,13 +33,13 @@ export const registry = new OpenAPIRegistry();
 const createProductOpenApiSchema = createProductSchema
   .omit({ options: true })
   .extend({
-    options: z.record(z.string(), z.unknown()).optional(),
+    options: z.record(z.string(), z.array(z.string())).optional(),
   });
 
 const updateProductOpenApiSchema = updateProductFieldsSchema
   .omit({ options: true })
   .extend({
-    options: z.record(z.string(), z.unknown()).nullable().optional(),
+    options: z.record(z.string(), z.array(z.string())).nullable().optional(),
   });
 
 // OpenAPI representation of the order creation request.
@@ -55,7 +55,7 @@ const createOrderOpenApiSchema = createOrderSchema
         z.object({
           productId: z.uuid(),
           quantity: z.number().int().min(1).max(100),
-          selectedOptions: z.record(z.string(), z.unknown()).optional(),
+          selectedOptions: z.record(z.string(), z.string()).optional(),
         }),
       )
       .min(1)
@@ -120,6 +120,13 @@ export const publicLiveResponseSchema = z.object({
       name: z.string(),
       price: z.number().int(),
       options: z.unknown().nullable(),
+      stockQuantity: z.number().int().min(0),
+      available: z.boolean(),
+      image: z.object({
+        id: z.string(),
+        url: z.url(),
+        createdAt: z.coerce.date(),
+      }).nullable(),
     }),
   ),
 });

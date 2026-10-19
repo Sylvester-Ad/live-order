@@ -71,6 +71,8 @@ describe("Products API", () => {
       liveId,
       name: "Classic T-shirt",
       price: 10000,
+      stockQuantity: 0,
+      image: null,
       options: {
         sizes: ["S", "M", "L"],
         colors: ["Black", "White"],
@@ -105,6 +107,30 @@ describe("Products API", () => {
       });
 
     expect(response.status).toBe(400);
+  });
+
+  it.each([-1, 1.5, 2_147_483_648])("rejects unsupported stock quantity %s", async (stockQuantity) => {
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .send({ name: "Classic T-shirt", price: 10000, stockQuantity });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects empty and duplicate product option groups and choices", async () => {
+    const emptyChoice = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .send({ name: "Classic T-shirt", price: 10000, options: { Size: [""] } });
+    const duplicateChoice = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .send({ name: "Classic T-shirt", price: 10000, options: { Size: ["M", " m "] } });
+
+    expect(emptyChoice.status).toBe(400);
+    expect(duplicateChoice.status).toBe(400);
   });
 
   it("rejects product creation for a nonexistent Live", async () => {

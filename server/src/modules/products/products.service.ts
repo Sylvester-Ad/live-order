@@ -5,6 +5,7 @@ import type {
   UpdateProductInput,
 } from "./products.schemas.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
+import { getImageStorage } from "./image-storage/index.js";
 
 export async function createProduct(
   creatorId: string,
@@ -34,9 +35,16 @@ export async function createProduct(
       liveId,
       name: input.name,
       price: input.price,
+      stockQuantity: input.stockQuantity ?? 0,
       options: input.options as Prisma.InputJsonValue | undefined,
     },
-  });
+    include: { images: { where: { isPrimary: true }, take: 1 } },
+  }).then(withPrimaryImage);
+}
+
+function withPrimaryImage<T extends { images: Array<{ id: string; url: string; createdAt: Date }> }>(product: T) {
+  const { images, ...fields } = product;
+  return { ...fields, image: images[0] ?? null };
 }
 
 export async function listProducts(creatorId: string, liveId: string) {
@@ -61,7 +69,8 @@ export async function listProducts(creatorId: string, liveId: string) {
     orderBy: {
       createdAt: "asc",
     },
-  });
+    include: { images: { where: { isPrimary: true }, take: 1 } },
+  }).then((products) => products.map(withPrimaryImage));
 }
 
 export async function updateProduct(
@@ -88,6 +97,7 @@ export async function updateProduct(
     data: {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.price !== undefined && { price: input.price }),
+      ...(input.stockQuantity !== undefined && { stockQuantity: input.stockQuantity }),
       ...(input.options !== undefined && {
         options:
           input.options === null
@@ -95,7 +105,8 @@ export async function updateProduct(
             : (input.options as Prisma.InputJsonValue),
       }),
     },
-  });
+    include: { images: { where: { isPrimary: true }, take: 1 } },
+  }).then(withPrimaryImage);
 }
 
 function isForeignKeyConstraintError(error: unknown): boolean {
@@ -112,14 +123,14 @@ export async function deleteProduct(
   liveId: string,
   productId: string,
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  const images = await prisma.$transaction(async (tx) => {
     const product = await tx.product.findFirst({
       where: {
         id: productId,
         liveId,
         live: { creatorId },
       },
-      select: { id: true },
+      select: { id: true, images: { select: { storageId: true, provider: true } } },
     });
 
     if (!product) {
@@ -151,5 +162,11 @@ export async function deleteProduct(
 
       throw error;
     }
+
+    return product.images;
   });
+
+  await Promise.allSettled(
+    images.map((image) => getImageStorage(image.provider).delete(image.storageId)),
+  );
 }

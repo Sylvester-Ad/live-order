@@ -23,4 +23,17 @@ export const productsApi = {
       `/v1/lives/${encodeURIComponent(liveId)}/products/${encodeURIComponent(productId)}`,
     );
   },
+  uploadImage(liveId: string, productId: string, file: File) {
+    const form = new FormData();
+    form.append("image", file);
+    return api.post<Product>(
+      `/v1/lives/${encodeURIComponent(liveId)}/products/${encodeURIComponent(productId)}/image`,
+      form,
+    );
+  },
+  removeImage(liveId: string, productId: string) {
+    return api.delete<Product>(
+      `/v1/lives/${encodeURIComponent(liveId)}/products/${encodeURIComponent(productId)}/image`,
+    );
+  },
 };
