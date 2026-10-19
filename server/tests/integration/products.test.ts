@@ -86,6 +86,24 @@ describe("Products API", () => {
     expect(product?.liveId).toBe(liveId);
   });
 
+  it("persists a nonzero stock quantity through product creation and listing", async () => {
+    const created = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .send({ name: "Limited edition bag", price: 10000, stockQuantity: 5 })
+      .expect(201);
+
+    expect(created.body.data.stockQuantity).toBe(5);
+    const stored = await prisma.product.findUniqueOrThrow({ where: { id: created.body.data.id } });
+    expect(stored.stockQuantity).toBe(5);
+
+    const listed = await request(app)
+      .get(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(listed.body.data.find((product: { id: string }) => product.id === created.body.data.id).stockQuantity).toBe(5);
+  });
+
   it("rejects product creation without authentication", async () => {
     const response = await request(app)
       .post(`/api/v1/lives/${liveId}/products`)
@@ -212,12 +230,13 @@ describe("Products API", () => {
         name: "Classic T-shirt",
         price: 10000,
         options: { sizes: ["S", "M", "L"] },
+        stockQuantity: 5,
       });
 
     const response = await request(app)
       .patch(`/api/v1/lives/${liveId}/products/${created.body.data.id}`)
       .set("Cookie", cookie)
-      .send({ name: "Cotton T-shirt", price: 12500, options: null });
+      .send({ name: "Cotton T-shirt", price: 12500, options: null, stockQuantity: 0 });
 
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({
@@ -226,6 +245,7 @@ describe("Products API", () => {
       name: "Cotton T-shirt",
       price: 12500,
       options: null,
+      stockQuantity: 0,
     });
   });
 

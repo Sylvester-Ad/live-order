@@ -117,6 +117,7 @@ describe("Orders API", () => {
 
     expect(response.body.data).toMatchObject({
       liveId,
+      reference: expect.stringMatching(/^ORD-[A-F0-9]{16}$/),
       customerName: "Ama Mensah",
       customerPhone: "0241234567",
       deliveryLocation: "Madina, Accra",
@@ -319,6 +320,7 @@ describe("Orders API", () => {
     expect(first.status).toBe(201);
     expect(retry.status).toBe(201);
     expect(retry.body.data.id).toBe(first.body.data.id);
+    expect(retry.body.data.reference).toBe(first.body.data.reference);
     expect(await prisma.order.count()).toBe(1);
     expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(18);
   });
@@ -415,6 +417,7 @@ describe("Orders API", () => {
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     expect(second.body.data.id).not.toBe(first.body.data.id);
+    expect(second.body.data.reference).not.toBe(first.body.data.reference);
     expect(await prisma.order.count()).toBe(2);
     expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(8);
   });

@@ -14,9 +14,9 @@ function newGroup(): ProductOptionGroup {
 export function ProductOptionsEditor({ groups, disabled = false, onChange }: Props) {
   return (
     <fieldset className="grid gap-4" disabled={disabled}>
-      <legend className="text-sm font-semibold text-ink">Product options (optional)</legend>
+      <legend className="text-sm font-semibold text-ink">Choices customers can select (optional)</legend>
       <p className="text-sm text-ink-muted">
-        Add choices such as sizes or colours. Choices do not have separate prices or stock.
+        Create groups such as Colour or Size. Customers can choose one value from each group when ordering. Stock is shared across all choices.
       </p>
       {groups.map((group, groupIndex) => (
         <section className="rounded-panel border border-border bg-white p-4" key={group.id} aria-label={`Option group ${groupIndex + 1}`}>

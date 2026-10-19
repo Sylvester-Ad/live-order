@@ -91,6 +91,31 @@ describe("GET /api/v1/public/lives/:slug", () => {
     });
   });
 
+  it("returns only the configured TikTok LIVE URL in public information", async () => {
+    const live = await prisma.live.create({
+      data: {
+        creatorId,
+        name: "Broadcast link",
+        slug: `broadcast-${crypto.randomUUID().slice(0, 8)}`,
+        status: "ACTIVE",
+        tiktokLiveUrl: "https://www.tiktok.com/@creator/live",
+      },
+    });
+
+    const response = await request(app).get(`/api/v1/public/lives/${live.slug}`).expect(200);
+    expect(response.body.data).toMatchObject({
+      tiktokLiveUrl: "https://www.tiktok.com/@creator/live",
+    });
+    expect(response.body.data).not.toHaveProperty("creatorId");
+    expect(response.body.data).not.toHaveProperty("creator");
+  });
+
+  it("returns null for Lives without a TikTok LIVE URL", async () => {
+    const live = await createLive("ACTIVE");
+    const response = await request(app).get(`/api/v1/public/lives/${live.slug}`).expect(200);
+    expect(response.body.data.tiktokLiveUrl).toBeNull();
+  });
+
   it("returns an active Live with an empty products array", async () => {
     const live = await createLive("ACTIVE");
 

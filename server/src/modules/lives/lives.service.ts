@@ -22,6 +22,7 @@ export async function createLive(creatorId: string, input: CreateLiveInput) {
       creatorId,
       name: input.name,
       slug: generateSlug(input.name),
+      tiktokLiveUrl: input.tiktokLiveUrl ?? null,
     },
   });
 }
@@ -61,6 +62,7 @@ export async function updateLive(
     data: {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.status !== undefined && { status: input.status }),
+      ...(input.tiktokLiveUrl !== undefined && { tiktokLiveUrl: input.tiktokLiveUrl }),
     },
   });
 }
@@ -87,6 +89,7 @@ export async function getPublicLiveBySlug(slug: string) {
       name: true,
       slug: true,
       status: true,
+      tiktokLiveUrl: true,
       products: {
         select: {
           id: true,

@@ -47,13 +47,14 @@ model CreatorSession {
 }
 
 model Live {
-  id        String     @id @default(uuid())
-  creatorId String
-  name      String
-  slug      String     @unique
-  status    LiveStatus @default(DRAFT)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id            String     @id @default(uuid())
+  creatorId     String
+  name          String
+  slug          String     @unique
+  status        LiveStatus @default(DRAFT)
+  tiktokLiveUrl String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   creator  Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   products Product[]
@@ -98,6 +99,7 @@ model ProductImage {
 model Order {
   id                 String        @id @default(uuid())
   liveId             String
+  reference          String?       @unique
   idempotencyKey     String?       @unique
   requestFingerprint String?
   customerName       String

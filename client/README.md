@@ -50,12 +50,14 @@ Application code stays organized by feature and responsibility; tests live in a 
 ## Routing and authentication
 
 - `/login` is public and authenticates with `POST /api/v1/creator/access`.
-- `/live/:slug` is a public customer route and has no seller navigation.
+- `/live/:slug` is a public customer route and has no seller navigation. Customers add product-specific selections to a cart, adjust quantities within shared per-product stock, and submit contact and delivery details without an account.
 - `/lives` lists the creator's Lives and links to the create flow.
-- `/lives/new` creates a Live using its name, then opens `/lives/:liveId`.
+- `/lives/new` creates a Live using its name and optional TikTok LIVE URL, then opens `/lives/:liveId`. TikTok URLs are validated by the server against HTTPS and the supported TikTok hostnames.
 - `/lives/:liveId` resolves the selected Live from `GET /api/v1/lives`. The backend has no authenticated single-Live read endpoint, so the workspace refreshes the creator-owned list on entry rather than trusting an old cache.
+- The workspace can add, update, or clear the TikTok LIVE URL. Active storefront pages expose the configured link to customers; the dashboard offers TikTok and storefront actions only when the related destination is available.
 - Draft Lives can be activated and active Lives can be ended using `PATCH /api/v1/lives/:liveId`. Ending requires confirmation. The interface offers no transition from `ENDED`.
-- `/lives/:liveId/products` lists products scoped to that Live, including stock and the primary image. `/new` creates a product and `/:productId/edit` updates it; editing resolves the product from the authenticated per-Live product list. Image upload and removal are available after the product has been saved.
+- `/lives/:liveId/products` lists products scoped to that Live, including stock and the primary image. `/new` creates a product and `/:productId/edit` updates it; editing resolves the product from the authenticated per-Live product list. Product options are group/choice objects, and existing unrecognized legacy values remain untouched unless explicitly replaced.
+- Product creation supports selecting and previewing an image before save. The product is created first and its image is uploaded second. If upload fails, the form keeps the saved product ID and offers image-only retry, so retrying cannot create a duplicate product. Editing reuses the same image picker; preview object URLs are revoked when replaced or unmounted.
 - Seller routes are wrapped by `RequireCreator`, which restores the session through `GET /api/v1/creator/me` before rendering private pages.
 - Logout calls `POST /api/v1/creator/logout`, then clears the TanStack Query cache.
 - The cookie is HTTP-only. Never read or persist its value in JavaScript.
@@ -92,6 +94,8 @@ Client test files are under `tests/`, grouped by app, shared components, feature
 The Live feature suite covers list success/empty/error states, workspace lookup, create validation and success/error feedback, activation, confirmed ending, and rejected transitions that preserve server state.
 
 The product suite covers Live-scoped list/loading/empty/error states, create and update payloads, stock and option validation, exact GHS-to-pesewas conversion, option-group editing and legacy preservation, image uploads, successful deletion, and deletion rejected for order history. Public storefront tests cover availability, option and quantity selection, order submission, and stock-conflict recovery. Backend integration tests cover image storage lifecycle, stock rollback, option validation, authoritative totals, and concurrent attempts to purchase the last unit.
+
+Public cart lines are keyed by product and selected option values: repeated identical selections merge, while different products remain separate. Stock remains shared across choices for a product. The public order endpoint returns the server-confirmed line prices and total plus a unique `ORD-` reference. Idempotency keys stay in tab-scoped storage until a confirmed response; customer details are not persisted. After a network failure, the same page retries the frozen request with its original key. If a page refresh loses that in-memory request and a mismatched retry receives an idempotency conflict, the storefront stops new submissions and asks the customer to contact the seller rather than risk a duplicate.
 
 Current product stages:
 

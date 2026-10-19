@@ -900,7 +900,7 @@ export interface paths {
         put?: never;
         /**
          * Place an order
-         * @description Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order. No creator session is required.
+         * @description Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.
          */
         post: {
             parameters: {
@@ -1143,11 +1143,15 @@ export interface components {
         };
         CreateLiveRequest: {
             name: string;
+            /** Format: uri */
+            tiktokLiveUrl?: string | null;
         };
         UpdateLiveRequest: {
             /** @enum {string} */
             status?: "ACTIVE" | "ENDED";
             name?: string;
+            /** Format: uri */
+            tiktokLiveUrl?: string | null;
         };
         LiveResponse: {
             id: string;
@@ -1155,6 +1159,8 @@ export interface components {
             slug: string;
             /** @enum {string} */
             status: "DRAFT" | "ACTIVE" | "ENDED";
+            /** Format: uri */
+            tiktokLiveUrl: string | null;
             /** Format: date-time */
             createdAt: string | null;
             /** Format: date-time */
@@ -1167,6 +1173,8 @@ export interface components {
                 slug: string;
                 /** @enum {string} */
                 status: "DRAFT" | "ACTIVE" | "ENDED";
+                /** Format: uri */
+                tiktokLiveUrl: string | null;
                 /** Format: date-time */
                 createdAt: string | null;
                 /** Format: date-time */
@@ -1180,6 +1188,8 @@ export interface components {
                 slug: string;
                 /** @enum {string} */
                 status: "DRAFT" | "ACTIVE" | "ENDED";
+                /** Format: uri */
+                tiktokLiveUrl: string | null;
                 /** Format: date-time */
                 createdAt: string | null;
                 /** Format: date-time */
@@ -1279,6 +1289,7 @@ export interface components {
         OrderResponse: {
             id: string;
             liveId: string;
+            reference: string;
             customerName: string;
             customerPhone: string;
             deliveryLocation: string;
@@ -1300,6 +1311,7 @@ export interface components {
             data: {
                 id: string;
                 liveId: string;
+                reference: string;
                 customerName: string;
                 customerPhone: string;
                 deliveryLocation: string;
@@ -1322,6 +1334,7 @@ export interface components {
             data: {
                 id: string;
                 liveId: string;
+                reference: string;
                 customerName: string;
                 customerPhone: string;
                 deliveryLocation: string;
@@ -1350,6 +1363,8 @@ export interface components {
             slug: string;
             /** @enum {string} */
             status: "ACTIVE";
+            /** Format: uri */
+            tiktokLiveUrl: string | null;
             products: {
                 id: string;
                 name: string;
@@ -1373,6 +1388,8 @@ export interface components {
                 slug: string;
                 /** @enum {string} */
                 status: "ACTIVE";
+                /** Format: uri */
+                tiktokLiveUrl: string | null;
                 products: {
                     id: string;
                     name: string;

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { prisma } from "../../database/prisma.js";
 import { AppError } from "../../shared/errors/app-error.js";
+import { createWithOrderReference } from "./order-reference.js";
 import type { CreateOrderInput } from "./orders.schemas.js";
 
 function stableJson(value: unknown): string {
@@ -73,7 +74,7 @@ export async function createOrder(
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await createWithOrderReference((reference) => prisma.$transaction(async (tx) => {
       const requestedQuantities = new Map<string, number>();
       for (const item of input.items) {
         requestedQuantities.set(
@@ -168,6 +169,7 @@ export async function createOrder(
       return tx.order.create({
         data: {
           liveId: live.id,
+          reference,
           ...(idempotencyKey && requestFingerprint && {
             idempotencyKey,
             requestFingerprint,
@@ -184,7 +186,7 @@ export async function createOrder(
           items: true,
         },
       });
-    });
+    }));
   } catch (error) {
     // A competing request may have committed this key while this transaction
     // was waiting on SQLite's write lock or attempting the unique insert.

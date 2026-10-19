@@ -1111,7 +1111,7 @@ The current backend provides the following relevant operations.
 | Export Live orders      | `GET /api/v1/lives/:liveId/orders/export` | Authenticated                              |
 | Get public Live         | `GET /api/v1/public/lives/:slug`          | Public                                     |
 
-The backend implementation and OpenAPI specification should be checked before implementation if either changes. Product responses include stock quantity and nullable primary image metadata. Public Live products include stock quantity and an `available` flag.
+The backend implementation and OpenAPI specification should be checked before implementation if either changes. Product responses include stock quantity and nullable primary image metadata. Public Live products include stock quantity and an `available` flag. Live responses include nullable `tiktokLiveUrl`; only HTTPS URLs on `tiktok.com`, `www.tiktok.com`, `m.tiktok.com`, and `live.tiktok.com` are accepted. The public Live response exposes that URL, not private creator fields.
 
 ## 9.1 Important Limitations
 
@@ -1157,6 +1157,8 @@ The storefront keeps its opaque idempotency key in tab-scoped `sessionStorage` u
 The supported status flow is:
 
 `DRAFT → ACTIVE → ENDED`
+
+Each Live may also store a TikTok LIVE URL. The creator can set or clear it through the existing create/update Live operations. This URL is optional and does not affect the Live lifecycle.
 
 Do not assume that ended Lives can be reactivated.
 

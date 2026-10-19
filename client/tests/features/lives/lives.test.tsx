@@ -11,6 +11,7 @@ const draftLive: Live = {
   name: "Friday fashion",
   slug: "friday-fashion-a1b2c3d4",
   status: "DRAFT",
+  tiktokLiveUrl: null,
   createdAt: "2026-10-12T10:00:00.000Z",
   updatedAt: "2026-10-12T10:00:00.000Z",
 };
@@ -63,6 +64,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "clipboard");
   Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
   Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
 });
@@ -77,7 +79,9 @@ describe("seller Live management", () => {
     expect(await screen.findByRole("heading", { name: "Friday fashion" })).toBeInTheDocument();
     expect(screen.getByText("DRAFT")).toBeInTheDocument();
     expect(screen.getByText(/^Created /)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("link", { name: "Open Live" }));
+    expect(screen.queryByRole("link", { name: "Open storefront" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open TikTok LIVE" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "Manage Live" }));
 
     expect(await screen.findByRole("heading", { name: "Session status" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) =>
@@ -120,13 +124,45 @@ describe("seller Live management", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
+  it("shows storefront and TikTok actions and reports clipboard success", async () => {
+    const activeLive: Live = {
+      ...draftLive,
+      status: "ACTIVE",
+      tiktokLiveUrl: "https://www.tiktok.com/@creator/live",
+    };
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: clipboardWrite } });
+    vi.stubGlobal("fetch", authenticatedFetch([activeLive]));
+    renderPath("/");
+
+    expect(await screen.findByRole("link", { name: "Open storefront" })).toHaveAttribute("href", expect.stringContaining("/live/friday-fashion-a1b2c3d4"));
+    expect(screen.getByRole("link", { name: "Open TikTok LIVE" })).toHaveAttribute("href", activeLive.tiktokLiveUrl);
+    fireEvent.click(screen.getByRole("button", { name: "Copy storefront link" }));
+    expect(await screen.findByText("Storefront link copied.")).toBeInTheDocument();
+    expect(clipboardWrite).toHaveBeenCalledWith(expect.stringContaining("/live/friday-fashion-a1b2c3d4"));
+    expect(screen.getByRole("link", { name: "Manage orders" })).toHaveAttribute("href", "/lives/live-1/orders");
+  });
+
+  it("reports clipboard failures with a recovery hint", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("Permission denied")) },
+    });
+    vi.stubGlobal("fetch", authenticatedFetch([{ ...draftLive, status: "ACTIVE" }]));
+    renderPath("/");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy storefront link" }));
+    expect(await screen.findByText("Couldn't copy the storefront link. Select and copy the URL from the Live workspace.")).toBeInTheDocument();
+  });
+
   it("validates a Live name and creates a Live before opening its workspace", async () => {
-    const created = { ...draftLive, name: "New summer collection", id: "live-new" };
+    const tiktokLiveUrl = "https://www.tiktok.com/@creator/live";
+    const created = { ...draftLive, name: "New summer collection", id: "live-new", tiktokLiveUrl };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/creator/me")) return response({ data: creator });
       if (url.endsWith("/v1/lives") && init?.method === "POST") {
-        expect(JSON.parse(String(init.body))).toEqual({ name: "New summer collection" });
+        expect(JSON.parse(String(init.body))).toEqual({ name: "New summer collection", tiktokLiveUrl });
         return response({ data: created }, 201);
       }
       if (url.endsWith("/v1/lives")) return response({ data: [created] });
@@ -142,10 +178,37 @@ describe("seller Live management", () => {
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/v1/lives") && init?.method === "POST")).toBe(false);
 
     fireEvent.change(nameField, { target: { value: "  New summer collection  " } });
+    fireEvent.change(screen.getByLabelText("TikTok LIVE URL (optional)"), { target: { value: tiktokLiveUrl } });
     fireEvent.click(screen.getByRole("button", { name: "Create Live" }));
     expect(await screen.findByRole("heading", { name: "New summer collection" })).toBeInTheDocument();
     expect(screen.getByText("DRAFT")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/v1/lives") && init?.method === "POST")).toBe(true);
+  });
+
+  it("updates a TikTok LIVE URL from the Live workspace", async () => {
+    const original: Live = { ...draftLive, status: "ACTIVE", tiktokLiveUrl: null };
+    let current = original;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/creator/me")) return response({ data: creator });
+      if (url.endsWith("/v1/lives") && init?.method !== "PATCH") return response({ data: [current] });
+      if (url.endsWith("/v1/lives/live-1") && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { tiktokLiveUrl: string | null };
+        current = { ...current, tiktokLiveUrl: body.tiktokLiveUrl };
+        return response({ data: current });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1");
+
+    const input = await screen.findByLabelText("TikTok LIVE URL");
+    fireEvent.change(input, { target: { value: "https://live.tiktok.com/@creator/live" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save TikTok link" }));
+
+    expect(await screen.findByText("TikTok LIVE link saved.")).toBeInTheDocument();
+    const updateCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ tiktokLiveUrl: "https://live.tiktok.com/@creator/live" });
   });
 
   it("shows backend validation errors when Live creation is rejected", async () => {
@@ -165,7 +228,7 @@ describe("seller Live management", () => {
     fireEvent.change(await screen.findByLabelText("Live name"), { target: { value: "A valid name" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Live" }));
 
-    expect(await screen.findByText("Enter a valid Live name of 1 to 100 characters.")).toBeInTheDocument();
+    expect(await screen.findByText("Use an HTTPS link from tiktok.com, www.tiktok.com, m.tiktok.com, or live.tiktok.com.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create Live" })).toBeEnabled();
   });
 
@@ -194,7 +257,7 @@ describe("seller Live management", () => {
       init?.method === "PATCH" && init.body === JSON.stringify({ status: "ACTIVE" }),
     )).toBe(true);
     fireEvent.click(screen.getByRole("link", { name: "← All Lives" }));
-    expect(await screen.findByRole("link", { name: "Open Live" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Manage Live" })).toBeInTheDocument();
     expect(screen.getByText("ACTIVE")).toBeInTheDocument();
   });
 

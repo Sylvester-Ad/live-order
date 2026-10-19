@@ -5,25 +5,33 @@ import { LoadingState, Notice, RequestFailure } from "../../../components/feedba
 import { PageHeader } from "../../../components/layout/page-header";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent } from "../../../components/ui/card";
-import { ApiError } from "../../../lib/api-client";
+import { buttonClassName } from "../../../components/ui/button-styles";
+import { ApiError, TransportError } from "../../../lib/api-client";
 import { formatPesewas } from "../../../lib/format-money";
 import { readProductOptionGroups } from "../../../lib/product-options";
+import type { CreateCustomerOrderInput, CreatedCustomerOrder } from "../../orders/api/orders-api";
 import { clearPublicOrderIdempotencyKey, getPublicOrderIdempotencyKey } from "../../orders/lib/public-order-idempotency";
 import { useCreateCustomerOrder } from "../../orders/hooks/use-create-customer-order";
+import { addProductToCart, productQuantityInCart, removeCartLine, setCartLineQuantity, type PublicOrderCartLine } from "../lib/public-order-cart";
 import type { PublicLive } from "../api/public-live-api";
 import { usePublicLive } from "../hooks/use-public-live";
 
 type ContactFields = { customerName: string; customerPhone: string; deliveryLocation: string };
+type PendingSubmission = { liveSlug: string; key: string; input: CreateCustomerOrderInput };
 
 export function PublicLivePage() {
   const { slug = "" } = useParams();
   const liveQuery = usePublicLive(slug);
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [cart, setCart] = useState<PublicOrderCartLine[]>([]);
+  const [addQuantities, setAddQuantities] = useState<Record<string, number>>({});
   const [selections, setSelections] = useState<Record<string, Record<string, string>>>({});
   const [contact, setContact] = useState<ContactFields>({ customerName: "", customerPhone: "", deliveryLocation: "" });
   const [formError, setFormError] = useState<string | null>(null);
+  const [cartFeedback, setCartFeedback] = useState<string | null>(null);
+  const [uncertainSubmission, setUncertainSubmission] = useState(false);
+  const [uncertainConflict, setUncertainConflict] = useState(false);
   const placeOrder = useCreateCustomerOrder();
-  const idempotencyKey = useRef<{ liveSlug: string; key: string } | null>(null);
+  const pendingSubmission = useRef<PendingSubmission | null>(null);
 
   if (liveQuery.isPending) return <LoadingState label="Loading this Live…" />;
   if (liveQuery.error instanceof ApiError && liveQuery.error.status === 404) {
@@ -32,81 +40,164 @@ export function PublicLivePage() {
   if (liveQuery.isError) return <RequestFailure label="We couldn't load this Live." onRetry={() => void liveQuery.refetch()} />;
 
   const live = liveQuery.data;
-  const quantityFor = (product: PublicLive["products"][number]) => product.available
-    ? Math.min(quantities[product.id] ?? 0, product.stockQuantity, 100)
-    : 0;
-  const selectedProducts = live.products.filter((product) => quantityFor(product) > 0);
-  const estimatedTotal = selectedProducts.reduce((total, product) => total + product.price * quantityFor(product), 0);
+  const productById = new Map(live.products.map((product) => [product.id, product]));
+  const cartLines = cart.map((line, index) => ({ ...line, index, product: productById.get(line.productId) }));
+  const cartTotal = cartLines.reduce((total, line) => total + (line.product ? line.product.price * line.quantity : 0), 0);
+  const invalidStockLine = cartLines.find((line) =>
+    !line.product || !line.product.available || productQuantityInCart(cart, line.productId) > line.product.stockQuantity,
+  );
   const orderError = placeOrder.error instanceof ApiError && placeOrder.error.code === "INSUFFICIENT_STOCK"
-    ? "Stock changed while you were ordering. Review the updated availability and adjust your quantities before trying again. Your contact details are still here."
+    ? "Stock changed while you were ordering. Refresh availability, adjust your order, and submit again."
     : placeOrder.error instanceof ApiError && placeOrder.error.code === "INVALID_PRODUCT_OPTIONS"
       ? "One of the selected options is no longer available. Review your choices and try again."
-      : placeOrder.error instanceof ApiError && placeOrder.error.code === "IDEMPOTENCY_KEY_REUSED"
-        ? "These details differ from an earlier order attempt. Review the order and submit again to start a new request."
-      : "We couldn't place this order. Check your details and try again.";
+      : placeOrder.error instanceof ApiError && placeOrder.error.code === "INVALID_PRODUCT"
+        ? "A product in this order is no longer available. Refresh the Live and review your order."
+        : placeOrder.error instanceof ApiError && placeOrder.error.code === "LIVE_NOT_ACTIVE"
+          ? "This Live is no longer accepting orders."
+          : placeOrder.error instanceof ApiError && placeOrder.error.code === "IDEMPOTENCY_KEY_REUSED"
+            ? "We couldn't safely match this retry to the earlier submission. The earlier order may have been received; please contact the seller before placing another order."
+            : placeOrder.error instanceof TransportError || (placeOrder.error instanceof ApiError && placeOrder.error.status >= 500)
+              ? "We couldn't confirm whether the order reached the seller. Retry this same order; it will not create a duplicate."
+              : "We couldn't place this order. Check your details and try again.";
+
+  function updateContact(field: keyof ContactFields, value: string) {
+    setContact((current) => ({ ...current, [field]: value }));
+    if (!uncertainSubmission) placeOrder.reset();
+  }
+
+  function addToOrder(product: PublicLive["products"][number]) {
+    const requestedQuantity = addQuantities[product.id] ?? 1;
+    const result = addProductToCart(cart, product.id, requestedQuantity, selections[product.id] ?? {}, product.stockQuantity);
+    setCart(result.cart);
+    setCartFeedback(result.added > 0
+      ? `Added ${result.added} ${product.name} ${result.added === 1 ? "item" : "items"} to your order.`
+      : result.reason === "line-limit"
+        ? "An order can contain up to 50 different product selections. Remove an item before adding another."
+        : `${product.name} is already at its available stock limit.`);
+    setAddQuantities((current) => ({ ...current, [product.id]: 1 }));
+    if (!uncertainSubmission) placeOrder.reset();
+  }
 
   function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
     if (placeOrder.isPending) return;
-    if (selectedProducts.length === 0) {
-      setFormError("Choose a quantity for at least one product.");
+
+    if (uncertainSubmission && pendingSubmission.current?.liveSlug === slug) {
+      if (!uncertainConflict) {
+        placeOrder.mutate({
+          liveId: live.id,
+          input: pendingSubmission.current.input,
+          idempotencyKey: pendingSubmission.current.key,
+        }, {
+          onSuccess: handleSubmissionSuccess,
+          onError: handleSubmissionError,
+        });
+      }
       return;
     }
 
-    const items = selectedProducts.map((product) => ({
-      productId: product.id,
-      quantity: quantityFor(product),
-      ...(Object.keys(selections[product.id] ?? {}).length > 0
-        ? { selectedOptions: selections[product.id] }
-        : {}),
-    }));
+    if (cart.length === 0) {
+      setFormError("Add at least one product to your order.");
+      return;
+    }
+    if (invalidStockLine) {
+      setFormError("Review your order: a product is no longer available in the selected quantity.");
+      return;
+    }
 
-    const key = idempotencyKey.current?.liveSlug === slug
-      ? idempotencyKey.current.key
-      : getPublicOrderIdempotencyKey(slug);
-    idempotencyKey.current = { liveSlug: slug, key };
+    const customerName = contact.customerName.trim();
+    const customerPhone = contact.customerPhone.trim();
+    const deliveryLocation = contact.deliveryLocation.trim();
+    if (customerName.length < 1 || customerName.length > 100) {
+      setFormError("Enter your name using 1 to 100 characters.");
+      return;
+    }
+    if (customerPhone.length < 7 || customerPhone.length > 30) {
+      setFormError("Enter a phone number using 7 to 30 characters.");
+      return;
+    }
+    if (deliveryLocation.length < 1 || deliveryLocation.length > 300) {
+      setFormError("Enter a delivery location using 1 to 300 characters.");
+      return;
+    }
+
+    const input: CreateCustomerOrderInput = {
+      customerName,
+      customerPhone,
+      deliveryLocation,
+      items: cart.map(({ productId, quantity, selectedOptions }) => ({
+        productId,
+        quantity,
+        ...(Object.keys(selectedOptions).length > 0 ? { selectedOptions } : {}),
+      })),
+    };
+    const storedKey = getPublicOrderIdempotencyKey(slug);
+    const submission = { liveSlug: slug, key: storedKey, input };
+    pendingSubmission.current = submission;
     placeOrder.mutate(
-      { liveId: live.id, input: { ...contact, items }, idempotencyKey: key },
+      { liveId: live.id, input, idempotencyKey: storedKey },
       {
-        onSuccess: () => {
-          clearPublicOrderIdempotencyKey(slug);
-          if (idempotencyKey.current?.liveSlug === slug) idempotencyKey.current = null;
-        },
-        onError: (error) => {
-          if (error instanceof ApiError && error.code === "IDEMPOTENCY_KEY_REUSED") {
-            clearPublicOrderIdempotencyKey(slug);
-            if (idempotencyKey.current?.liveSlug === slug) idempotencyKey.current = null;
-          }
-        },
+        onSuccess: handleSubmissionSuccess,
+        onError: handleSubmissionError,
       },
     );
   }
 
+  function handleSubmissionSuccess() {
+    clearPublicOrderIdempotencyKey(slug);
+    pendingSubmission.current = null;
+    setUncertainSubmission(false);
+  }
+
+  function handleSubmissionError(error: Error) {
+    if (error instanceof ApiError && error.code === "IDEMPOTENCY_KEY_REUSED") {
+      setUncertainSubmission(true);
+      setUncertainConflict(true);
+    } else if (error instanceof TransportError || (error instanceof ApiError && error.status >= 500)) {
+      setUncertainSubmission(true);
+    }
+  }
+
+  function continueShopping() {
+    placeOrder.reset();
+    setCart([]);
+    setAddQuantities({});
+    setSelections({});
+    setContact({ customerName: "", customerPhone: "", deliveryLocation: "" });
+    setCartFeedback(null);
+    setFormError(null);
+    setUncertainSubmission(false);
+    setUncertainConflict(false);
+    pendingSubmission.current = null;
+  }
+
   if (placeOrder.isSuccess) {
-    return (
-      <>
-        <PageHeader description={`Your request has been sent to ${live.name}'s seller.`} eyebrow="Order received" title="Thanks for your order" />
-        <Card><CardContent className="grid gap-3">
-          <p className="font-semibold text-ink">Order reference</p>
-          <p className="break-all font-mono text-sm text-ink-muted">{placeOrder.data.id}</p>
-          <p className="text-sm text-ink-muted">The seller manages payment confirmation. Contact them to arrange payment and delivery.</p>
-        </CardContent></Card>
-      </>
-    );
+    return <OrderConfirmation live={live} order={placeOrder.data} onContinueShopping={continueShopping} />;
   }
 
   return (
     <>
-      <PageHeader description="Choose products and quantities, then send your order to the seller." eyebrow="LiveOrder storefront" title={live.name} />
+      <PageHeader
+        description="Choose products, add them to your order, then send your details to the seller."
+        eyebrow="LiveOrder storefront"
+        title={live.name}
+      />
+      {live.tiktokLiveUrl && (
+        <a className="mb-6 inline-flex text-sm font-semibold text-brand-700 underline decoration-brand-300 underline-offset-4 hover:text-brand-900" href={live.tiktokLiveUrl} rel="noopener noreferrer" target="_blank">
+          Return to TikTok LIVE
+        </a>
+      )}
       {live.products.length === 0 ? (
         <Card><CardContent><p className="font-semibold text-ink">Products will appear here when the seller adds them.</p></CardContent></Card>
       ) : (
-        <form className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]" onSubmit={submitOrder}>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <form className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]" onSubmit={submitOrder}>
+          <section aria-label="Products" className="grid content-start gap-4 sm:grid-cols-2">
             {live.products.map((product) => {
               const optionGroups = readProductOptionGroups(product.options);
-              const quantity = quantityFor(product);
+              const alreadyInCart = productQuantityInCart(cart, product.id);
+              const remainingStock = Math.max(0, product.stockQuantity - alreadyInCart);
+              const selectedQuantity = Math.min(addQuantities[product.id] ?? 1, remainingStock, 100);
               return (
                 <Card key={product.id}>
                   <CardContent className="grid gap-3">
@@ -126,6 +217,7 @@ export function PublicLivePage() {
                             <select
                               aria-label={`Choose ${group.name} for ${product.name}`}
                               className="min-h-11 rounded-control border border-border bg-white px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
+                              disabled={uncertainSubmission}
                               onChange={(event) => setSelections((current) => {
                                 const nextSelection = { ...current[product.id] };
                                 if (event.target.value) nextSelection[group.name] = event.target.value;
@@ -142,54 +234,79 @@ export function PublicLivePage() {
                         {!optionGroups.supported && product.options != null && (
                           <p className="text-sm text-ink-muted">This product has older option details; contact the seller to confirm your preference.</p>
                         )}
-                        <label className="grid max-w-40 gap-1.5 text-sm font-medium text-ink">
-                          Quantity
-                          <input
-                            aria-label={`Quantity for ${product.name}`}
-                            className="min-h-11 rounded-control border border-border px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
-                            max={Math.min(product.stockQuantity, 100)}
-                            min={0}
-                            onChange={(event) => {
-                              const value = event.target.value === "" ? 0 : Number(event.target.value);
-                              if (Number.isInteger(value)) setQuantities((current) => ({ ...current, [product.id]: Math.min(Math.max(0, value), product.stockQuantity, 100) }));
-                            }}
-                            step={1}
-                            type="number"
-                            value={quantity}
-                          />
-                        </label>
-                        {product.stockQuantity > 100 && <p className="text-xs text-ink-muted">Up to 100 units of this product per order.</p>}
+                        <div className="mt-auto grid gap-3 border-t border-border pt-3">
+                          <label className="grid max-w-40 gap-1.5 text-sm font-medium text-ink">
+                            Quantity to add
+                            <input
+                              aria-label={`Quantity to add for ${product.name}`}
+                              className="min-h-11 rounded-control border border-border px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
+                              disabled={uncertainSubmission || remainingStock === 0}
+                              max={Math.min(remainingStock, 100)}
+                              min={1}
+                              onChange={(event) => {
+                                const value = event.target.value === "" ? 1 : Number(event.target.value);
+                                if (Number.isInteger(value)) setAddQuantities((current) => ({ ...current, [product.id]: Math.min(Math.max(1, value), remainingStock, 100) }));
+                              }}
+                              step={1}
+                              type="number"
+                              value={remainingStock === 0 ? 0 : selectedQuantity}
+                            />
+                          </label>
+                          <Button disabled={uncertainSubmission || remainingStock === 0 || selectedQuantity < 1} onClick={() => addToOrder(product)} type="button">
+                            {remainingStock === 0 ? "Stock limit reached" : "Add to order"}
+                          </Button>
+                        </div>
                       </>
                     )}
                   </CardContent>
                 </Card>
               );
             })}
-          </div>
+          </section>
 
           <aside className="h-fit rounded-panel border border-border bg-white p-5 lg:sticky lg:top-5">
             <h2 className="text-lg font-bold text-ink">Your order</h2>
-            <p className="mt-1 text-sm text-ink-muted">The seller confirms payment and delivery with you.</p>
-            {selectedProducts.length === 0 ? (
-              <p className="mt-4 text-sm text-ink-muted">Select products to start your order.</p>
+            <p className="mt-1 text-sm text-ink-muted">Products stay separate; stock is shared across choices for each product.</p>
+            {cartFeedback && <p className="mt-3 text-sm font-medium text-success-700" role="status">{cartFeedback}</p>}
+            {cartLines.length === 0 ? (
+              <p className="mt-4 text-sm text-ink-muted">Add products to start your order.</p>
             ) : (
-              <ul className="mt-4 grid gap-2 border-b border-border pb-4 text-sm">
-                {selectedProducts.map((product) => <li className="flex justify-between gap-3" key={product.id}><span>{product.name} × {quantityFor(product)}</span><span className="shrink-0 tabular-nums">{formatPesewas(product.price * quantityFor(product))}</span></li>)}
+              <ul aria-label="Order items" className="mt-4 grid gap-4 border-y border-border py-4">
+                {cartLines.map((line) => (
+                  <li className="grid gap-2 text-sm" key={`${line.productId}:${JSON.stringify(line.selectedOptions)}:${line.index}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-ink">{line.product?.name ?? "Product no longer available"}</p>
+                        <SelectedOptions options={line.selectedOptions} />
+                        {line.product && <p className="text-ink-muted">{formatPesewas(line.product.price)} each</p>}
+                      </div>
+                      <p className="shrink-0 font-semibold tabular-nums text-ink">{line.product ? formatPesewas(line.product.price * line.quantity) : "—"}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button aria-label={`Decrease ${line.product?.name ?? "item"} quantity`} disabled={uncertainSubmission} onClick={() => setCart((current) => setCartLineQuantity(current, line.index, line.quantity - 1, line.product?.stockQuantity ?? 0))} size="sm" type="button" variant="secondary">−</Button>
+                      <span aria-label={`Quantity ${line.quantity}`} className="min-w-6 text-center font-semibold">{line.quantity}</span>
+                      <Button aria-label={`Increase ${line.product?.name ?? "item"} quantity`} disabled={uncertainSubmission || !line.product || productQuantityInCart(cart, line.productId) >= line.product.stockQuantity || line.quantity >= 100} onClick={() => setCart((current) => setCartLineQuantity(current, line.index, line.quantity + 1, line.product?.stockQuantity ?? 0))} size="sm" type="button" variant="secondary">+</Button>
+                      <Button aria-label={`Remove ${line.product?.name ?? "item"}`} disabled={uncertainSubmission} onClick={() => setCart((current) => removeCartLine(current, line.index))} size="sm" type="button" variant="ghost">Remove</Button>
+                    </div>
+                  </li>
+                ))}
               </ul>
             )}
-            <p className="mt-4 flex justify-between font-bold text-ink"><span>Estimated total</span><span className="tabular-nums">{formatPesewas(estimatedTotal)}</span></p>
-            <p className="mt-1 text-xs text-ink-muted">Final total is calculated by the seller's server.</p>
+            <p className="mt-4 flex justify-between font-bold text-ink"><span>Estimated total</span><span className="tabular-nums">{formatPesewas(cartTotal)}</span></p>
+            <p className="mt-1 text-xs text-ink-muted">The server confirms current prices and the final total.</p>
             <div className="mt-5 grid gap-3">
-              <label className="grid gap-1.5 text-sm font-medium text-ink">Your name<input autoComplete="name" className="min-h-11 rounded-control border border-border px-3" maxLength={100} onChange={(event) => setContact({ ...contact, customerName: event.target.value })} required value={contact.customerName} /></label>
-              <label className="grid gap-1.5 text-sm font-medium text-ink">Phone number<input autoComplete="tel" className="min-h-11 rounded-control border border-border px-3" maxLength={30} onChange={(event) => setContact({ ...contact, customerPhone: event.target.value })} required type="tel" value={contact.customerPhone} /></label>
-              <label className="grid gap-1.5 text-sm font-medium text-ink">Delivery location<input autoComplete="street-address" className="min-h-11 rounded-control border border-border px-3" maxLength={300} onChange={(event) => setContact({ ...contact, deliveryLocation: event.target.value })} required value={contact.deliveryLocation} /></label>
+              <label className="grid gap-1.5 text-sm font-medium text-ink">Your name<input autoComplete="name" className="min-h-11 rounded-control border border-border px-3" disabled={uncertainSubmission} maxLength={100} minLength={1} onChange={(event) => updateContact("customerName", event.target.value)} required value={contact.customerName} /></label>
+              <label className="grid gap-1.5 text-sm font-medium text-ink">Phone number<input autoComplete="tel" className="min-h-11 rounded-control border border-border px-3" disabled={uncertainSubmission} maxLength={30} minLength={7} onChange={(event) => updateContact("customerPhone", event.target.value)} required type="tel" value={contact.customerPhone} /></label>
+              <label className="grid gap-1.5 text-sm font-medium text-ink">Delivery location<input autoComplete="street-address" className="min-h-11 rounded-control border border-border px-3" disabled={uncertainSubmission} maxLength={300} minLength={1} onChange={(event) => updateContact("deliveryLocation", event.target.value)} required value={contact.deliveryLocation} /></label>
               {formError && <p className="text-sm text-danger-700" role="alert">{formError}</p>}
               {placeOrder.isError && <Notice title={orderError} />}
+              {invalidStockLine && !placeOrder.isError && <Notice title="Review your order quantities to match current availability." />}
+              {uncertainConflict && <p className="text-sm text-ink-muted">Do not submit a new order until you have checked with the seller.</p>}
               {placeOrder.isError && placeOrder.error instanceof ApiError && placeOrder.error.code === "INSUFFICIENT_STOCK" && (
                 <Button onClick={() => void liveQuery.refetch()} type="button" variant="secondary">Refresh availability</Button>
               )}
-              <Button disabled={placeOrder.isPending || selectedProducts.length === 0} type="submit">
-                {placeOrder.isPending ? "Sending order…" : "Place order"}
+              <Button disabled={placeOrder.isPending || cart.length === 0 || Boolean(invalidStockLine) || uncertainConflict} type="submit">
+                {placeOrder.isPending ? "Sending order…" : uncertainSubmission ? "Retry same order" : "Place order"}
               </Button>
             </div>
           </aside>
@@ -197,6 +314,53 @@ export function PublicLivePage() {
       )}
     </>
   );
+}
+
+function OrderConfirmation({ live, order, onContinueShopping }: { live: PublicLive; order: CreatedCustomerOrder; onContinueShopping(): void }) {
+  return (
+    <>
+      <PageHeader description={`Your order has been submitted to ${live.name}'s seller.`} eyebrow="Order submitted" title="Thanks for your order" />
+      <Card>
+        <CardContent className="grid gap-5">
+          <div className="rounded-control bg-success-50 p-4">
+            <p className="font-bold text-success-800">Order received</p>
+            <p className="mt-1 text-sm text-success-800">Payment has not been confirmed. The seller will follow up with you.</p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-ink-muted">Order reference</p>
+            <p className="mt-1 font-mono text-xl font-bold tracking-wide text-ink">{order.reference}</p>
+          </div>
+          <div>
+            <h2 className="font-bold text-ink">Items ordered</h2>
+            <ul className="mt-3 grid gap-3 border-y border-border py-3">
+              {order.items.map((item) => (
+                <li className="flex justify-between gap-4 text-sm" key={item.id}>
+                  <span>
+                    <span className="font-semibold text-ink">{item.productName} × {item.quantity}</span>
+                    <SelectedOptions options={item.selectedOptions} />
+                    <span className="block text-ink-muted">{formatPesewas(item.unitPrice)} each</span>
+                  </span>
+                  <span className="shrink-0 font-semibold tabular-nums text-ink">{formatPesewas(item.unitPrice * item.quantity)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="flex justify-between text-lg font-bold text-ink"><span>Order total</span><span className="tabular-nums">{formatPesewas(order.totalAmount)}</span></p>
+          <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row">
+            <Button onClick={onContinueShopping} type="button">Continue shopping</Button>
+            {live.tiktokLiveUrl && <a className={buttonClassName("secondary")} href={live.tiktokLiveUrl} rel="noopener noreferrer" target="_blank">Return to TikTok LIVE</a>}
+          </div>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function SelectedOptions({ options }: { options: unknown }) {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) return null;
+  const entries = Object.entries(options).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  if (entries.length === 0) return null;
+  return <span className="block text-xs text-ink-muted">{entries.map(([group, choice]) => `${group}: ${choice}`).join(" · ")}</span>;
 }
 
 function ProductImage({ src, name }: { src?: string; name: string }) {

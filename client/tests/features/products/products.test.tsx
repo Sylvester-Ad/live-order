@@ -12,6 +12,7 @@ const live = {
   name: "Friday fashion",
   slug: "friday-fashion-a1b2c3d4",
   status: "DRAFT" as const,
+  tiktokLiveUrl: null,
   createdAt: "2026-10-12T10:00:00.000Z",
   updatedAt: "2026-10-12T10:00:00.000Z",
 };
@@ -46,8 +47,9 @@ function renderPath(path: string) {
   );
 }
 
-function productFetch(initialProducts: Product[] = [], rejectDelete = true) {
+function productFetch(initialProducts: Product[] = [], rejectDelete = true, failFirstImageUpload = false) {
   let products = initialProducts;
+  let imageUploads = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
@@ -61,6 +63,19 @@ function productFetch(initialProducts: Product[] = [], rejectDelete = true) {
       products = [...products, created];
       return response({ data: created }, 201);
     }
+    const imagePath = url.match(/\/api\/v1\/lives\/live-1\/products\/([^/]+)\/image$/);
+    if (imagePath && init?.method === "POST") {
+      imageUploads += 1;
+      if (failFirstImageUpload && imageUploads === 1) {
+        return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Upload failed" } }, 500);
+      }
+      const productId = imagePath[1];
+      const current = products.find((item) => item.id === productId);
+      if (!current) return response({ error: { code: "PRODUCT_NOT_FOUND", message: "Missing" } }, 404);
+      const updated = product({ ...current, image: { id: "image-1", url: "https://images.example/product.png", createdAt: "2026-10-12T10:00:00.000Z" } });
+      products = products.map((item) => item.id === updated.id ? updated : item);
+      return response({ data: updated });
+    }
     if (url.endsWith("/api/v1/lives/live-1/products/product-1") && init?.method === "PATCH") {
       const body = JSON.parse(String(init.body)) as Partial<Product>;
       const updated = { ...products[0], ...body } as Product;
@@ -73,11 +88,6 @@ function productFetch(initialProducts: Product[] = [], rejectDelete = true) {
       }
       products = products.filter((item) => item.id !== "product-1");
       return new Response(null, { status: 204 });
-    }
-    if (url.endsWith("/api/v1/lives/live-1/products/product-1/image") && init?.method === "POST") {
-      const updated = product({ ...products[0], image: { id: "image-1", url: "https://images.example/product.png", createdAt: "2026-10-12T10:00:00.000Z" } });
-      products = products.map((item) => item.id === updated.id ? updated : item);
-      return response({ data: updated });
     }
     if (url.endsWith("/api/v1/lives/live-1/products/product-1/image") && init?.method === "DELETE") {
       const updated = product({ ...products[0], image: null });
@@ -201,6 +211,7 @@ describe("seller product management", () => {
       stockQuantity: 12,
       options: { Size: ["S", "M"] },
     });
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/image") && init?.method === "POST")).toBe(false);
     expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith("/api/v1/lives/live-1/products") && init?.method === "GET",
     )).toBe(true); // The destination list is refreshed after creation succeeds.
@@ -219,6 +230,59 @@ describe("seller product management", () => {
     expect(await screen.findByText("Enter an amount with up to two decimal places.")).toBeInTheDocument();
     expect(screen.getByText("Enter a name for every option group.")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("saves a product once and retries its image upload without creating a duplicate", async () => {
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:new-product" });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => undefined });
+    const fetchMock = productFetch([], true, true);
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/new");
+
+    const file = new File(["image"], "bag.png", { type: "image/png" });
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Limited bag" } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.00" } });
+    fireEvent.change(screen.getByLabelText("Stock quantity"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Choose an image"), { target: { files: [file] } });
+    expect(screen.getByRole("img", { name: "Limited bag product preview" })).toHaveAttribute("src", "blob:new-product");
+
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+    expect(await screen.findByText("Product saved, but its image could not be uploaded.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry image upload" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry image upload" }));
+    expect(await screen.findByText("Product created.")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/products") && init?.method === "POST")).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/image") && init?.method === "POST")).toHaveLength(2);
+  });
+
+  it("edits option group and choices while preserving the configured options format", async () => {
+    const fetchMock = productFetch([product({ options: { Size: ["S"] } })]);
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/product-1/edit");
+
+    fireEvent.change(await screen.findByLabelText("Option group 1 name"), { target: { value: "Colour" } });
+    fireEvent.change(screen.getByLabelText("Colour choice 1"), { target: { value: "Black" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add choice" }));
+    fireEvent.change(screen.getByLabelText("Colour choice 2"), { target: { value: "White" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
+    expect(await screen.findByText("Product changes saved.")).toBeInTheDocument();
+    const updateCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({ options: { Colour: ["Black", "White"] } });
+  });
+
+  it("allows stock quantity to be edited back to zero", async () => {
+    const fetchMock = productFetch([product({ stockQuantity: 5 })]);
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/product-1/edit");
+
+    fireEvent.change(await screen.findByLabelText("Stock quantity"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("Product changes saved.")).toBeInTheDocument();
+    const updateCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({ stockQuantity: 0 });
   });
 
   it("shows backend product validation errors", async () => {

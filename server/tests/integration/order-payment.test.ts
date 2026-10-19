@@ -54,6 +54,7 @@ describe("Order payment API", () => {
     const order = await prisma.order.create({
       data: {
         liveId: live.id,
+        reference: "ORD-0000000000000003",
         customerName: "Test Customer",
         customerPhone: "0241234567",
         deliveryLocation: "Accra",
@@ -98,6 +99,7 @@ describe("Order payment API", () => {
     const otherOrder = await prisma.order.create({
       data: {
         liveId: otherLive.id,
+        reference: "ORD-0000000000000004",
         customerName: "Another Customer",
         customerPhone: "0247654321",
         deliveryLocation: "Kumasi",
@@ -128,6 +130,7 @@ describe("Order payment API", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.data.paymentStatus).toBe("PAID");
+    expect(response.body.data.reference).toBe("ORD-0000000000000003");
 
     const order = await prisma.order.findUniqueOrThrow({
       where: { id: orderId },

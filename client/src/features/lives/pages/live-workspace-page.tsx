@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
 import { EmptyState, LoadingState, Notice, RequestFailure } from "../../../components/feedback/feedback";
@@ -6,6 +6,7 @@ import { PageHeader } from "../../../components/layout/page-header";
 import { ConfirmationDialog } from "../../../components/ui/confirmation-dialog";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent } from "../../../components/ui/card";
+import { TextField } from "../../../components/ui/text-field";
 import { ApiError } from "../../../lib/api-client";
 import { LiveStatusBadge } from "../components/live-status-badge";
 import { useLives, useUpdateLive } from "../hooks/use-lives";
@@ -96,6 +97,8 @@ export function LiveWorkspacePage() {
         </CardContent>
       </Card>
 
+      <TikTokLiveLinkEditor liveId={live.id} value={live.tiktokLiveUrl} />
+
       <div className="grid gap-4 md:grid-cols-2">
         <WorkspaceCard
           description="Add products and review the information customers will see."
@@ -134,6 +137,47 @@ export function LiveWorkspacePage() {
         {updateLive.isError && <Notice title={mutationError} />}
       </ConfirmationDialog>
     </>
+  );
+}
+
+function TikTokLiveLinkEditor({ liveId, value }: { liveId: string; value: string | null }) {
+  const [url, setUrl] = useState(value ?? "");
+  const [saved, setSaved] = useState(false);
+  const updateLive = useUpdateLive();
+
+  function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaved(false);
+    updateLive.mutate(
+      { liveId, input: { tiktokLiveUrl: url.trim() || null } },
+      { onSuccess: () => setSaved(true) },
+    );
+  }
+
+  const invalidUrl = updateLive.error instanceof ApiError && updateLive.error.status === 400;
+
+  return (
+    <Card className="mb-5">
+      <CardContent>
+        <form className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end" onSubmit={save}>
+          <TextField
+            autoComplete="url"
+            error={invalidUrl ? "Use an HTTPS URL from tiktok.com, www.tiktok.com, m.tiktok.com, or live.tiktok.com." : undefined}
+            hint="Optional. Add or update the broadcast link customers can return to."
+            label="TikTok LIVE URL"
+            onChange={(event) => { setUrl(event.currentTarget.value); setSaved(false); }}
+            placeholder="https://www.tiktok.com/@yourname/live"
+            type="url"
+            value={url}
+          />
+          <Button disabled={updateLive.isPending || url === (value ?? "")} type="submit">
+            {updateLive.isPending ? "Saving link…" : "Save TikTok link"}
+          </Button>
+        </form>
+        {updateLive.isError && !invalidUrl && <div className="mt-3"><Notice title="We couldn't save the TikTok LIVE link. Try again." /></div>}
+        {saved && <div className="mt-3"><Notice title="TikTok LIVE link saved." tone="success" /></div>}
+      </CardContent>
+    </Card>
   );
 }
 

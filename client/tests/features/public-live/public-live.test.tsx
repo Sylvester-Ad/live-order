@@ -5,12 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../../../src/app/providers";
 import { createTestRouter } from "../../../src/app/router";
 
-const liveResponse = (stockQuantity = 7) => ({
+const liveResponse = (stockQuantity = 7, tiktokLiveUrl: string | null = null) => ({
   data: {
     id: "live-1",
     name: "Friday collection",
     slug: "friday-collection",
     status: "ACTIVE",
+    tiktokLiveUrl,
     products: [
       {
         id: "product-1",
@@ -38,17 +39,48 @@ function response(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 }
 
+const confirmedOrder = {
+  id: "order-1",
+  liveId: "live-1",
+  reference: "ORD-0123456789ABCDEF",
+  customerName: "Ama Mensah",
+  customerPhone: "0241234567",
+  deliveryLocation: "Madina, Accra",
+  totalAmount: 5100,
+  paymentStatus: "PENDING",
+  createdAt: "2026-10-20T10:00:00.000Z",
+  items: [{
+    id: "line-1",
+    productId: "product-1",
+    productName: "Cotton shirt",
+    unitPrice: 2550,
+    quantity: 2,
+    selectedOptions: { Size: "M" },
+  }],
+};
+
 function renderStorefront() {
   return render(<AppProviders><RouterProvider router={createTestRouter(["/live/friday-collection"])} /></AppProviders>);
 }
 
 describe("public customer ordering", () => {
+  it("offers the TikTok broadcast link when the seller provides one", async () => {
+    const fetchMock = vi.fn(async () => response(liveResponse(7, "https://www.tiktok.com/@creator/live")));
+    vi.stubGlobal("fetch", fetchMock);
+    renderStorefront();
+
+    expect(await screen.findByRole("link", { name: "Return to TikTok LIVE" })).toHaveAttribute(
+      "href",
+      "https://www.tiktok.com/@creator/live",
+    );
+  });
+
   it("shows availability, validates the basket, and submits options without client prices", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse());
       if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") {
-        return response({ data: { id: "order-1" } }, 201);
+        return response({ data: confirmedOrder }, 201);
       }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
@@ -59,13 +91,25 @@ describe("public customer ordering", () => {
     expect(screen.getByText("Out of stock")).toBeInTheDocument();
     expect(screen.queryByLabelText("Quantity for Sold-out cap")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
-    fireEvent.change(screen.getByLabelText("Quantity for Cotton shirt"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Added 2 Cotton shirt items to your order.");
+    fireEvent.change(screen.getByLabelText("Quantity to add for Cotton shirt"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
+    expect(screen.getByLabelText("Quantity 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Decrease Cotton shirt quantity" }));
+    expect(screen.getByLabelText("Quantity 2")).toBeInTheDocument();
+    expect(screen.getAllByText("GH₵ 51.00")).toHaveLength(2);
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
     fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Madina, Accra" } });
     fireEvent.click(screen.getByRole("button", { name: "Place order" }));
 
     expect(await screen.findByRole("heading", { name: "Thanks for your order" })).toBeInTheDocument();
+    expect(screen.getByText("ORD-0123456789ABCDEF")).toBeInTheDocument();
+    expect(screen.getByText("Size: M")).toBeInTheDocument();
+    expect(screen.getByText("Payment has not been confirmed. The seller will follow up with you.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue shopping" })).toBeInTheDocument();
     const orderCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST");
     expect(JSON.parse(String(orderCall?.[1]?.body))).toEqual({
       customerName: "Ama Mensah",
@@ -89,7 +133,7 @@ describe("public customer ordering", () => {
         orderRequests += 1;
         requestKeys.push(new Headers(init.headers).get("Idempotency-Key") ?? "");
         if (orderRequests === 1) {
-          committedOrder = response({ data: { id: "order-committed" } }, 201);
+          committedOrder = response({ data: { ...confirmedOrder, id: "order-committed" } }, 201);
           throw new TypeError("Connection closed after the server committed the order");
         }
         return committedOrder ?? response({ error: { code: "UNEXPECTED", message: "No committed order" } }, 500);
@@ -99,14 +143,15 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    fireEvent.change(await screen.findByLabelText("Quantity for Cotton shirt"), { target: { value: "1" } });
+    fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
     fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Madina, Accra" } });
     fireEvent.click(screen.getByRole("button", { name: "Place order" }));
-    expect(await screen.findByText("We couldn't place this order. Check your details and try again.")).toBeInTheDocument();
+    expect(await screen.findByText(/couldn't confirm whether the order reached the seller/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry same order" }));
     expect(await screen.findByRole("heading", { name: "Thanks for your order" })).toBeInTheDocument();
     expect(requestKeys).toHaveLength(2);
     expect(requestKeys[1]).toBe(requestKeys[0]);
@@ -129,8 +174,9 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    const quantity = await screen.findByLabelText("Quantity for Cotton shirt");
+    const quantity = await screen.findByLabelText("Quantity to add for Cotton shirt");
     fireEvent.change(quantity, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
     fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Madina, Accra" } });
@@ -139,6 +185,46 @@ describe("public customer ordering", () => {
     expect(await screen.findByText(/Stock changed while you were ordering/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Refresh availability" }));
     expect(await screen.findByText("2 available")).toBeInTheDocument();
-    expect(screen.getByLabelText("Quantity for Cotton shirt")).toHaveValue(2);
+    fireEvent.click(screen.getByRole("button", { name: "Decrease Cotton shirt quantity" }));
+    expect(screen.getByLabelText("Quantity 2")).toBeInTheDocument();
+  });
+
+  it("confirms with the TikTok link only when supplied and returns to shopping", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse(7, "https://www.tiktok.com/@creator/live"));
+      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") return response({ data: confirmedOrder }, 201);
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderStorefront();
+
+    fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
+    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
+    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
+    fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Madina, Accra" } });
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+
+    const tiktok = await screen.findByRole("link", { name: "Return to TikTok LIVE" });
+    expect(tiktok).toHaveAttribute("href", "https://www.tiktok.com/@creator/live");
+    fireEvent.click(screen.getByRole("button", { name: "Continue shopping" }));
+    expect(await screen.findByRole("heading", { name: "Friday collection" })).toBeInTheDocument();
+    expect(screen.getByText("Add products to start your order.")).toBeInTheDocument();
+  });
+
+  it("validates customer details against the order request before sending", async () => {
+    const fetchMock = vi.fn(async () => response(liveResponse()));
+    vi.stubGlobal("fetch", fetchMock);
+    renderStorefront();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add to order" }));
+    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
+    fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Accra" } });
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter your name using 1 to 100 characters.");
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/lives/live-1/orders"))).toBe(false);
   });
 });

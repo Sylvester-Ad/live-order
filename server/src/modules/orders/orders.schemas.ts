@@ -24,6 +24,7 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export const orderResponseSchema = z.object({
   id: z.string(),
   liveId: z.string(),
+  reference: z.string(),
   customerName: z.string(),
   customerPhone: z.string(),
   deliveryLocation: z.string(),

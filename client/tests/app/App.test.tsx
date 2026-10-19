@@ -51,6 +51,7 @@ describe("application routes", () => {
           name: "Friday Fashion Live",
           slug: "friday-fashion",
           status: "ACTIVE",
+          tiktokLiveUrl: null,
           products: [{ id: "product-1", name: "Cotton Shirt", price: 12550, options: null }],
         },
       }),
@@ -71,6 +72,7 @@ describe("application routes", () => {
       name: "Friday Fashion Live",
       slug: "friday-fashion",
       status: "ACTIVE",
+      tiktokLiveUrl: null,
       createdAt: "2026-10-12T10:00:00.000Z",
       updatedAt: "2026-10-12T10:00:00.000Z",
     };

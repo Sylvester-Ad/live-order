@@ -359,7 +359,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Place an order",
   description:
-    "Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order. No creator session is required.",
+    "Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.",
   request: {
     params: z.object({
       liveId: z.string().openapi({

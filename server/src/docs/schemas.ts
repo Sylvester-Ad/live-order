@@ -8,6 +8,7 @@ import {
 import {
   createLiveSchema,
   liveResponseSchema,
+  tiktokLiveUrlSchema,
   updateLiveSchema,
 } from "../modules/lives/lives.schemas.js";
 
@@ -114,6 +115,7 @@ export const publicLiveResponseSchema = z.object({
   name: z.string(),
   slug: z.string(),
   status: z.literal("ACTIVE"),
+  tiktokLiveUrl: tiktokLiveUrlSchema.nullable(),
   products: z.array(
     z.object({
       id: z.string(),

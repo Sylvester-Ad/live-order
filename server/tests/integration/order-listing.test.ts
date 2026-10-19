@@ -63,6 +63,7 @@ describe("Order listing API", () => {
     const olderOrder = await prisma.order.create({
       data: {
         liveId,
+        reference: "ORD-0000000000000001",
         customerName: "Older Customer",
         customerPhone: "0241234567",
         deliveryLocation: "Accra",
@@ -82,6 +83,7 @@ describe("Order listing API", () => {
     const newerOrder = await prisma.order.create({
       data: {
         liveId,
+        reference: "ORD-0000000000000002",
         customerName: "Newer Customer",
         customerPhone: "0247654321",
         deliveryLocation: "Kumasi",
@@ -109,6 +111,7 @@ describe("Order listing API", () => {
 
     expect(response.body.data[0]).toMatchObject({
       customerName: "Newer Customer",
+      reference: "ORD-0000000000000002",
       totalAmount: 20000,
       paymentStatus: "PENDING",
       items: [

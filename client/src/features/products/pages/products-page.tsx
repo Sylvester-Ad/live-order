@@ -98,7 +98,21 @@ export function ProductsPage() {
         <span className="font-semibold text-ink">{live.name}</span>
       </div>
 
-      {noticeMessage && <div className="mb-5"><Notice title={noticeMessage} tone="success" /></div>}
+      {noticeMessage && (
+        <div className="mb-5">
+          <Notice
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Link className={buttonClassName("secondary", "sm")} to={`/lives/${liveId}`}>Live workspace</Link>
+                <Link className={buttonClassName("ghost", "sm")} to="/">Dashboard</Link>
+                {live.status === "ACTIVE" && <a className={buttonClassName("ghost", "sm")} href={`/live/${live.slug}`} rel="noopener noreferrer" target="_blank">Open storefront</a>}
+              </div>
+            }
+            title={noticeMessage}
+            tone="success"
+          />
+        </div>
+      )}
       {deleteProduct.isError && selectedProduct === null && <div className="mb-5"><Notice title={deleteError} /></div>}
 
       {liveProducts.length === 0 ? (

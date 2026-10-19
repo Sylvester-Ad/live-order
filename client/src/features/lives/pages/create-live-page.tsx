@@ -12,6 +12,7 @@ export function CreateLivePage() {
   const navigate = useNavigate();
   const createLive = useCreateLive();
   const [name, setName] = useState("");
+  const [tiktokLiveUrl, setTiktokLiveUrl] = useState("");
   const [validationError, setValidationError] = useState<string>();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -29,13 +30,13 @@ export function CreateLivePage() {
 
     setValidationError(undefined);
     createLive.mutate(
-      { name: trimmedName },
+      { name: trimmedName, ...(tiktokLiveUrl.trim() ? { tiktokLiveUrl: tiktokLiveUrl.trim() } : {}) },
       { onSuccess: (live) => navigate(`/lives/${live.id}`, { state: { created: true } }) },
     );
   }
 
   const requestError = createLive.error instanceof ApiError && createLive.error.status === 400
-    ? "Enter a valid Live name of 1 to 100 characters."
+    ? "Check the Live name and TikTok LIVE link. Use an HTTPS TikTok URL from a supported domain."
     : "We couldn't create this Live. Check your connection and try again.";
 
   return (
@@ -64,6 +65,18 @@ export function CreateLivePage() {
           placeholder="For example, Friday fashion"
           required
           value={name}
+        />
+        <TextField
+          autoComplete="url"
+          error={createLive.isError && createLive.error instanceof ApiError && createLive.error.status === 400
+            ? "Use an HTTPS link from tiktok.com, www.tiktok.com, m.tiktok.com, or live.tiktok.com."
+            : undefined}
+          hint="Optional. Customers can use this link to return to your broadcast."
+          label="TikTok LIVE URL (optional)"
+          onChange={(event) => setTiktokLiveUrl(event.currentTarget.value)}
+          placeholder="https://www.tiktok.com/@yourname/live"
+          type="url"
+          value={tiktokLiveUrl}
         />
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600" to="/lives">
