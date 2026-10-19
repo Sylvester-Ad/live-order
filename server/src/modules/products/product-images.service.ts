@@ -7,6 +7,10 @@ const imageByProduct = {
   images: { where: { isPrimary: true }, take: 1 },
 } as const;
 
+function logImageCleanupFailure(operation: string, provider: string, storageId: string) {
+  console.error("Product image cleanup failed", { operation, provider, storageId });
+}
+
 function productWithImage<T extends { images: Array<{ id: string; url: string; createdAt: Date }> }>(product: T) {
   const { images, ...fields } = product;
   return { ...fields, image: images[0] ?? null };
@@ -69,7 +73,9 @@ export async function uploadProductImage(
       });
     });
   } catch (error) {
-    await storage.delete(stored.storageId).catch(() => undefined);
+    await storage.delete(stored.storageId).catch(() => {
+      logImageCleanupFailure("remove_failed_upload", stored.provider, stored.storageId);
+    });
     throw error;
   }
 
@@ -79,8 +85,13 @@ export async function uploadProductImage(
   });
   await Promise.allSettled(previousImages.map(async (image) => {
     const imageStorage = image.provider === stored.provider ? storage : getImageStorage(image.provider);
-    await imageStorage.delete(image.storageId);
-    await prisma.productImage.delete({ where: { id: image.id } });
+    try {
+      await imageStorage.delete(image.storageId);
+      await prisma.productImage.delete({ where: { id: image.id } });
+    } catch {
+      // The non-primary row retains the provider and storage ID for later cleanup.
+      logImageCleanupFailure("replace_previous_image", image.provider, image.storageId);
+    }
   }));
 
   return prisma.product.findUniqueOrThrow({
@@ -109,6 +120,7 @@ export async function removeProductImage(
       await prisma.productImage.delete({ where: { id: image.id } });
     } catch {
       // The image is no longer displayed; its row remains available for cleanup.
+      logImageCleanupFailure("remove_product_image", image.provider, image.storageId);
     }
   }
 

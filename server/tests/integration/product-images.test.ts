@@ -99,10 +99,17 @@ describe("Product image service", () => {
   it("does not remove a displayed image when storage deletion fails", async () => {
     await uploadProductImage(creatorId, liveId, productId, { buffer: png, mimetype: "image/png" }, storage);
     remove.mockRejectedValueOnce(new Error("provider unavailable"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await removeProductImage(creatorId, liveId, productId, storage);
 
     expect(result.image).toBeNull();
     expect(await prisma.productImage.findFirst({ where: { productId, isPrimary: true } })).toBeNull();
     expect(await prisma.productImage.count({ where: { productId } })).toBe(1);
+    expect(log).toHaveBeenCalledWith("Product image cleanup failed", {
+      operation: "remove_product_image",
+      provider: "CLOUDINARY",
+      storageId: "asset-1",
+    });
+    log.mockRestore();
   });
 });

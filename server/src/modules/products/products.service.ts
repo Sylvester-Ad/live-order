@@ -166,7 +166,16 @@ export async function deleteProduct(
     return product.images;
   });
 
-  await Promise.allSettled(
-    images.map((image) => getImageStorage(image.provider).delete(image.storageId)),
-  );
+  await Promise.allSettled(images.map(async (image) => {
+    try {
+      await getImageStorage(image.provider).delete(image.storageId);
+    } catch {
+      // ProductImage rows cascade with the product, so logs preserve the recovery identifier.
+      console.error("Product image cleanup failed", {
+        operation: "delete_product_image",
+        provider: image.provider,
+        storageId: image.storageId,
+      });
+    }
+  }));
 }
