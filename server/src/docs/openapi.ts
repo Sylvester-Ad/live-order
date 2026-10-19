@@ -359,11 +359,17 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Place an order",
   description:
-    "Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. No creator session is required.",
+    "Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order. No creator session is required.",
   request: {
     params: z.object({
       liveId: z.string().openapi({
         description: "ID of the Live being ordered from.",
+      }),
+    }),
+    headers: z.object({
+      "Idempotency-Key": z.uuid().optional().openapi({
+        param: { name: "Idempotency-Key", in: "header" },
+        description: "A UUID reused for retries of the same logical order request.",
       }),
     }),
     body: {
@@ -378,7 +384,7 @@ registry.registerPath({
     ),
     400: errorResponse("Invalid order data, product, or selected product options."),
     404: errorResponse("Live not found."),
-    409: errorResponse("Live is inactive or product stock is insufficient."),
+    409: errorResponse("Live is inactive, product stock is insufficient, or the idempotency key was reused with a different request."),
   },
 });
 

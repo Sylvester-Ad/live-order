@@ -1148,6 +1148,10 @@ The server calculates authoritative order totals.
 
 The order endpoint uses current product prices and decrements the requested stock atomically with order creation. A conditional stock update inside the database transaction prevents two concurrent requests from purchasing the same remaining units; an insufficient-stock response is `409 INSUFFICIENT_STOCK`. Failed order creation rolls back all stock decrements. Orders consume stock at creation while still PENDING. There is no cancellation lifecycle, so the current API cannot restore stock; payment-status updates never change stock.
 
+Public order creation accepts an optional UUID `Idempotency-Key` header. For requests that include it, the order stores the unique key and a SHA-256 fingerprint of the validated payload. Fingerprinting sorts object keys, preserves item-array order, treats omitted and empty option selections as equivalent, and includes the Live, customer details, product IDs, quantities, and selected options, but no prices. Retrying the same key and payload returns the original order; a different payload with that key receives `409 IDEMPOTENCY_KEY_REUSED`. The key and order are committed in the same transaction as stock changes. Existing clients may omit the header.
+
+The storefront keeps its opaque idempotency key in tab-scoped `sessionStorage` until it receives a successful response. It does not persist customer details; after a refresh the customer re-enters them, and an identical request reuses the key. If the payload differs from a previously committed request, the storefront clears the mismatched key and asks the customer to submit again to begin a new request.
+
 ## 10.2 Live Status
 
 The supported status flow is:

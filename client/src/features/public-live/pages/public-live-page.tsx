@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 
 import { LoadingState, Notice, RequestFailure } from "../../../components/feedback/feedback";
@@ -8,6 +8,7 @@ import { Card, CardContent } from "../../../components/ui/card";
 import { ApiError } from "../../../lib/api-client";
 import { formatPesewas } from "../../../lib/format-money";
 import { readProductOptionGroups } from "../../../lib/product-options";
+import { clearPublicOrderIdempotencyKey, getPublicOrderIdempotencyKey } from "../../orders/lib/public-order-idempotency";
 import { useCreateCustomerOrder } from "../../orders/hooks/use-create-customer-order";
 import type { PublicLive } from "../api/public-live-api";
 import { usePublicLive } from "../hooks/use-public-live";
@@ -22,6 +23,7 @@ export function PublicLivePage() {
   const [contact, setContact] = useState<ContactFields>({ customerName: "", customerPhone: "", deliveryLocation: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const placeOrder = useCreateCustomerOrder();
+  const idempotencyKey = useRef<{ liveSlug: string; key: string } | null>(null);
 
   if (liveQuery.isPending) return <LoadingState label="Loading this Live…" />;
   if (liveQuery.error instanceof ApiError && liveQuery.error.status === 404) {
@@ -39,11 +41,14 @@ export function PublicLivePage() {
     ? "Stock changed while you were ordering. Review the updated availability and adjust your quantities before trying again. Your contact details are still here."
     : placeOrder.error instanceof ApiError && placeOrder.error.code === "INVALID_PRODUCT_OPTIONS"
       ? "One of the selected options is no longer available. Review your choices and try again."
+      : placeOrder.error instanceof ApiError && placeOrder.error.code === "IDEMPOTENCY_KEY_REUSED"
+        ? "These details differ from an earlier order attempt. Review the order and submit again to start a new request."
       : "We couldn't place this order. Check your details and try again.";
 
   function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    if (placeOrder.isPending) return;
     if (selectedProducts.length === 0) {
       setFormError("Choose a quantity for at least one product.");
       return;
@@ -57,7 +62,25 @@ export function PublicLivePage() {
         : {}),
     }));
 
-    placeOrder.mutate({ liveId: live.id, input: { ...contact, items } });
+    const key = idempotencyKey.current?.liveSlug === slug
+      ? idempotencyKey.current.key
+      : getPublicOrderIdempotencyKey(slug);
+    idempotencyKey.current = { liveSlug: slug, key };
+    placeOrder.mutate(
+      { liveId: live.id, input: { ...contact, items }, idempotencyKey: key },
+      {
+        onSuccess: () => {
+          clearPublicOrderIdempotencyKey(slug);
+          if (idempotencyKey.current?.liveSlug === slug) idempotencyKey.current = null;
+        },
+        onError: (error) => {
+          if (error instanceof ApiError && error.code === "IDEMPOTENCY_KEY_REUSED") {
+            clearPublicOrderIdempotencyKey(slug);
+            if (idempotencyKey.current?.liveSlug === slug) idempotencyKey.current = null;
+          }
+        },
+      },
+    );
   }
 
   if (placeOrder.isSuccess) {

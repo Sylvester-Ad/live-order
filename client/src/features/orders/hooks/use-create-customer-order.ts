@@ -4,7 +4,10 @@ import { customerOrdersApi, type CreateCustomerOrderInput } from "../api/orders-
 
 export function useCreateCustomerOrder() {
   return useMutation({
-    mutationFn: ({ liveId, input }: { liveId: string; input: CreateCustomerOrderInput }) =>
-      customerOrdersApi.create(liveId, input),
+    mutationFn: ({ liveId, input, idempotencyKey }: {
+      liveId: string;
+      input: CreateCustomerOrderInput;
+      idempotencyKey: string;
+    }) => customerOrdersApi.create(liveId, input, idempotencyKey),
   });
 }

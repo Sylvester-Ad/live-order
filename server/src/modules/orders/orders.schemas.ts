@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const orderIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
+
 export const createOrderSchema = z.object({
   customerName: z.string().trim().min(1).max(100),
   customerPhone: z.string().trim().min(7).max(30),

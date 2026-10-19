@@ -96,15 +96,17 @@ model ProductImage {
 }
 
 model Order {
-  id               String        @id @default(uuid())
-  liveId           String
-  customerName     String
-  customerPhone    String
-  deliveryLocation String
-  totalAmount      Int
-  paymentStatus    PaymentStatus @default(PENDING)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  liveId             String
+  idempotencyKey     String?       @unique
+  requestFingerprint String?
+  customerName       String
+  customerPhone      String
+  deliveryLocation   String
+  totalAmount        Int
+  paymentStatus      PaymentStatus @default(PENDING)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   live  Live        @relation(fields: [liveId], references: [id], onDelete: Cascade)
   items OrderItem[]

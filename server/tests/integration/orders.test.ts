@@ -294,4 +294,151 @@ describe("Orders API", () => {
     expect(await prisma.order.count()).toBe(1);
     expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(0);
   });
+
+  it("returns the original order for an identical idempotent retry", async () => {
+    const idempotencyKey = randomUUID();
+    const first = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: tShirtId, quantity: 2, selectedOptions: { Size: "M", Colour: "Black" } }],
+      });
+    const retry = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({
+        deliveryLocation: "Madina, Accra",
+        customerPhone: "0241234567",
+        customerName: "Ama Mensah",
+        items: [{ productId: tShirtId, quantity: 2, selectedOptions: { Colour: "Black", Size: "M" } }],
+      });
+
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.id).toBe(first.body.data.id);
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(18);
+  });
+
+  it("rejects reuse of an idempotency key for a different request", async () => {
+    const idempotencyKey = randomUUID();
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: capId, quantity: 1 }],
+    };
+    const first = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+    const mismatched = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({ ...payload, items: [{ productId: capId, quantity: 2 }] });
+
+    expect(first.status).toBe(201);
+    expect(mismatched.status).toBe(409);
+    expect(mismatched.body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(9);
+  });
+
+  it("serializes concurrent requests using the same idempotency key", async () => {
+    await prisma.product.update({ where: { id: capId }, data: { stockQuantity: 1 } });
+    const idempotencyKey = randomUUID();
+    const makeOrder = () => request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: capId, quantity: 1 }],
+      });
+
+    const results = await Promise.all([makeOrder(), makeOrder()]);
+
+    expect(results.map((result) => result.status)).toEqual([201, 201]);
+    expect(results[0]?.body.data.id).toBe(results[1]?.body.data.id);
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(0);
+  });
+
+  it("allows retrying the same key after a failed attempt that committed no order", async () => {
+    await prisma.product.update({ where: { id: tShirtId }, data: { stockQuantity: 0 } });
+    const idempotencyKey = randomUUID();
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: tShirtId, quantity: 1 }],
+    };
+    const failed = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+    expect(await prisma.order.count()).toBe(0);
+
+    await prisma.product.update({ where: { id: tShirtId }, data: { stockQuantity: 1 } });
+    const retried = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+
+    expect(failed.status).toBe(409);
+    expect(failed.body.error.code).toBe("INSUFFICIENT_STOCK");
+    expect(retried.status).toBe(201);
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(0);
+  });
+
+  it("creates distinct orders for genuinely new idempotency keys", async () => {
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: capId, quantity: 1 }],
+    };
+    const first = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", randomUUID())
+      .send(payload);
+    const second = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", randomUUID())
+      .send(payload);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+    expect(await prisma.order.count()).toBe(2);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(8);
+  });
+
+  it("rejects malformed idempotency keys while remaining compatible without the header", async () => {
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: capId, quantity: 1 }],
+    };
+    const invalid = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", "not-a-uuid")
+      .send(payload);
+    const compatible = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send(payload);
+
+    expect(invalid.status).toBe(400);
+    expect(compatible.status).toBe(201);
+    expect(await prisma.order.findUnique({ where: { id: compatible.body.data.id } })).toMatchObject({
+      idempotencyKey: null,
+      requestFingerprint: null,
+    });
+  });
 });

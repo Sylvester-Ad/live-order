@@ -900,12 +900,15 @@ export interface paths {
         put?: never;
         /**
          * Place an order
-         * @description Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. No creator session is required.
+         * @description Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order. No creator session is required.
          */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description A UUID reused for retries of the same logical order request. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     /** @description ID of the Live being ordered from. */
                     liveId: string;
@@ -945,7 +948,7 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description Live is inactive or product stock is insufficient. */
+                /** @description Live is inactive, product stock is insufficient, or the idempotency key was reused with a different request. */
                 409: {
                     headers: {
                         [name: string]: unknown;

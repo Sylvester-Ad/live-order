@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireCreator } from "../../shared/middleware/require-creator.js";
 import {
   createOrderSchema,
+  orderIdempotencyKeySchema,
   orderResponseSchema,
   updateOrderSchema,
 } from "./orders.schemas.js";
@@ -19,6 +20,10 @@ const router = Router();
 router.post("/lives/:liveId/orders", async (req, res, next) => {
   try {
     const input = createOrderSchema.parse(req.body);
+    const rawIdempotencyKey = req.get("Idempotency-Key");
+    const idempotencyKey = rawIdempotencyKey === undefined
+      ? undefined
+      : orderIdempotencyKeySchema.parse(rawIdempotencyKey);
     const liveId = req.params.liveId;
 
     if (typeof liveId !== "string") {
@@ -30,7 +35,7 @@ router.post("/lives/:liveId/orders", async (req, res, next) => {
       });
     }
 
-    const order = await createOrder(liveId, input);
+    const order = await createOrder(liveId, input, idempotencyKey);
 
     return res.status(201).json({
       data: orderResponseSchema.parse(order),
