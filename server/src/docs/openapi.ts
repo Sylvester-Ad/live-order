@@ -453,7 +453,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Export orders as CSV",
   description:
-    "Downloads order data as a CSV file. Monetary values are expressed in pesewas.",
+    "Downloads order data as a CSV file. Monetary values are expressed in pesewas. Existing columns are followed by the customer-facing order reference.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({

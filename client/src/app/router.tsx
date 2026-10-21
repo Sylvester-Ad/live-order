@@ -10,12 +10,12 @@ import { RequireCreator } from "../features/auth/components/require-creator";
 import { LoginPage } from "../features/auth/pages/login-page";
 import { DashboardPage } from "../features/dashboard/pages/dashboard-page";
 import { CreateLivePage } from "../features/lives/pages/create-live-page";
-import { LiveSectionPlaceholder } from "../features/lives/pages/live-section-placeholder";
 import { LivesPage } from "../features/lives/pages/lives-page";
 import { LiveWorkspacePage } from "../features/lives/pages/live-workspace-page";
 import { ProductsPage } from "../features/products/pages/products-page";
 import { ProductFormPage } from "../features/products/pages/product-form-page";
 import { PublicLivePage } from "../features/public-live/pages/public-live-page";
+import { OrdersPage } from "../features/orders/pages/orders-page";
 import { NotFoundPage } from "./NotFoundPage";
 
 export const routeConfig: RouteObject[] = [
@@ -43,7 +43,11 @@ export const routeConfig: RouteObject[] = [
           { path: "lives/:liveId/products/:productId/edit", element: <ProductFormPage /> },
           {
             path: "lives/:liveId/orders",
-            element: <LiveSectionPlaceholder section="Orders" />,
+            element: <OrdersPage />,
+          },
+          {
+            path: "lives/:liveId/orders/:orderId",
+            element: <OrdersPage />,
           },
         ],
       },

@@ -147,8 +147,11 @@ router.get(
           item.selectedOptions == null
             ? ""
             : JSON.stringify(item.selectedOptions),
+          order.reference ?? "",
         ]),
       );
+
+      headers.push("Order Reference");
 
       const csv = toCsv(headers, rows);
 

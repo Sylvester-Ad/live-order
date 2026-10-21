@@ -33,7 +33,7 @@ src/
     dashboard/         # Seller dashboard and Lives listing
     lives/             # Live workspace and Live API access
     products/          # Live-scoped CRUD, options, stock and image management
-    orders/             # Public customer order submission
+    orders/             # Public submission and seller order management
     public-live/       # Public product storefront and order form
   lib/                 # API transport, query client, formatting helpers
   types/               # Generated API contract types
@@ -58,6 +58,8 @@ Application code stays organized by feature and responsibility; tests live in a 
 - Draft Lives can be activated and active Lives can be ended using `PATCH /api/v1/lives/:liveId`. Ending requires confirmation. The interface offers no transition from `ENDED`.
 - `/lives/:liveId/products` lists products scoped to that Live, including stock and the primary image. `/new` creates a product and `/:productId/edit` updates it; editing resolves the product from the authenticated per-Live product list. Product options are group/choice objects, and existing unrecognized legacy values remain untouched unless explicitly replaced.
 - Product creation supports selecting and previewing an image before save. The product is created first and its image is uploaded second. If upload fails, the form keeps the saved product ID and offers image-only retry, so retrying cannot create a duplicate product. Editing reuses the same image picker; preview object URLs are revoked when replaced or unmounted.
+- `/lives/:liveId/orders` lists the selected Live's authenticated orders and supports manually confirming payment. `/lives/:liveId/orders/:orderId` shows persisted order and item snapshots; the list response is reused, so there is no extra detail endpoint. Both routes use the creator-owned order list, and the order query is refreshed after payment updates.
+- Order CSV downloads use the authenticated Live-scoped export endpoint. The original columns remain in the same order; the customer-facing order reference is appended as the final column. The server escapes CSV cells and the browser names the file with the Live name and export date.
 - Seller routes are wrapped by `RequireCreator`, which restores the session through `GET /api/v1/creator/me` before rendering private pages.
 - Logout calls `POST /api/v1/creator/logout`, then clears the TanStack Query cache.
 - The cookie is HTTP-only. Never read or persist its value in JavaScript.
