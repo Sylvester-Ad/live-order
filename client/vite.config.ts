@@ -28,6 +28,7 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: "jsdom",
       globals: true,
+      maxWorkers: 2,
       include: ["tests/**/*.test.{ts,tsx}"],
       setupFiles: ["./tests/setup.ts"],
       css: true,

@@ -7,5 +7,6 @@ export function usePublicLive(slug: string) {
     queryKey: ["public-live", slug],
     queryFn: ({ signal }) => publicLiveApi.getBySlug(slug, signal),
     retry: false,
+    refetchOnMount: "always",
   });
 }

@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 
 import { LoadingState, Notice, RequestFailure } from "../../../components/feedback/feedback";
@@ -30,8 +30,57 @@ export function PublicLivePage() {
   const [cartFeedback, setCartFeedback] = useState<string | null>(null);
   const [uncertainSubmission, setUncertainSubmission] = useState(false);
   const [uncertainConflict, setUncertainConflict] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [refreshingAvailability, setRefreshingAvailability] = useState(false);
+  const [availabilityRefreshFailed, setAvailabilityRefreshFailed] = useState(false);
   const placeOrder = useCreateCustomerOrder();
   const pendingSubmission = useRef<PendingSubmission | null>(null);
+  const cartPanelRef = useRef<HTMLElement>(null);
+  const cartCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const cartTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!cartOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const cartTrigger = cartTriggerRef.current;
+    document.body.style.overflow = "hidden";
+    cartCloseButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setCartOpen(false);
+        return;
+      }
+      if (event.key !== "Tab" || !cartPanelRef.current) return;
+      const focusable = Array.from(cartPanelRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+      if (cartTrigger?.isConnected) cartTrigger.focus();
+      else previouslyFocused?.focus();
+    };
+  }, [cartOpen]);
 
   if (liveQuery.isPending) return <LoadingState label="Loading this Live…" />;
   if (liveQuery.error instanceof ApiError && liveQuery.error.status === 404) {
@@ -42,6 +91,7 @@ export function PublicLivePage() {
   const live = liveQuery.data;
   const productById = new Map(live.products.map((product) => [product.id, product]));
   const cartLines = cart.map((line, index) => ({ ...line, index, product: productById.get(line.productId) }));
+  const cartQuantity = cart.reduce((count, line) => count + line.quantity, 0);
   const cartTotal = cartLines.reduce((total, line) => total + (line.product ? line.product.price * line.quantity : 0), 0);
   const invalidStockLine = cartLines.find((line) =>
     !line.product || !line.product.available || productQuantityInCart(cart, line.productId) > line.product.stockQuantity,
@@ -148,6 +198,7 @@ export function PublicLivePage() {
     clearPublicOrderIdempotencyKey(slug);
     pendingSubmission.current = null;
     setUncertainSubmission(false);
+    setCartOpen(false);
   }
 
   function handleSubmissionError(error: Error) {
@@ -159,7 +210,11 @@ export function PublicLivePage() {
     }
   }
 
-  function continueShopping() {
+  async function continueShopping() {
+    setRefreshingAvailability(true);
+    setAvailabilityRefreshFailed(false);
+    const refreshResult = await liveQuery.refetch();
+    setAvailabilityRefreshFailed(refreshResult.isError);
     placeOrder.reset();
     setCart([]);
     setAddQuantities({});
@@ -170,10 +225,11 @@ export function PublicLivePage() {
     setUncertainSubmission(false);
     setUncertainConflict(false);
     pendingSubmission.current = null;
+    setRefreshingAvailability(false);
   }
 
   if (placeOrder.isSuccess) {
-    return <OrderConfirmation live={live} order={placeOrder.data} onContinueShopping={continueShopping} />;
+    return <OrderConfirmation live={live} onContinueShopping={continueShopping} order={placeOrder.data} refreshingAvailability={refreshingAvailability} />;
   }
 
   return (
@@ -183,6 +239,7 @@ export function PublicLivePage() {
         eyebrow="LiveOrder storefront"
         title={live.name}
       />
+      {availabilityRefreshFailed && <Notice title="Your order was submitted, but availability could not be refreshed. Reload the storefront before placing another order." tone="info" />}
       {live.tiktokLiveUrl && (
         <a className="mb-6 inline-flex text-sm font-semibold text-brand-700 underline decoration-brand-300 underline-offset-4 hover:text-brand-900" href={live.tiktokLiveUrl} rel="noopener noreferrer" target="_blank">
           Return to TikTok LIVE
@@ -191,7 +248,7 @@ export function PublicLivePage() {
       {live.products.length === 0 ? (
         <Card><CardContent><p className="font-semibold text-ink">Products will appear here when the seller adds them.</p></CardContent></Card>
       ) : (
-        <form className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]" onSubmit={submitOrder}>
+        <form className="grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_21rem] lg:pb-0" onSubmit={submitOrder}>
           <section aria-label="Products" className="grid content-start gap-4 sm:grid-cols-2">
             {live.products.map((product) => {
               const optionGroups = readProductOptionGroups(product.options);
@@ -203,7 +260,7 @@ export function PublicLivePage() {
                   <CardContent className="grid gap-3">
                     <ProductImage src={product.image?.url} name={product.name} />
                     <div className="flex items-start justify-between gap-3">
-                      <h2 className="font-bold text-ink">{product.name}</h2>
+                      <h2 className="min-w-0 break-words font-bold text-ink">{product.name}</h2>
                       <p className="shrink-0 font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
                     </div>
                     {!product.available || product.stockQuantity === 0 ? (
@@ -264,8 +321,21 @@ export function PublicLivePage() {
             })}
           </section>
 
-          <aside className="h-fit rounded-panel border border-border bg-white p-5 lg:sticky lg:top-5">
-            <h2 className="text-lg font-bold text-ink">Your order</h2>
+          {cartOpen && <button aria-label="Close cart" className="fixed inset-0 z-40 bg-ink/40 lg:hidden" onClick={() => setCartOpen(false)} type="button" />}
+          <aside
+            aria-labelledby="public-cart-title"
+            aria-modal={cartOpen ? "true" : undefined}
+            className={cartOpen
+              ? "fixed inset-x-0 bottom-0 z-50 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-panel border border-border bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-panel lg:sticky lg:top-5 lg:max-h-none lg:overflow-visible lg:rounded-panel lg:p-5 lg:pb-5 lg:shadow-none"
+              : "hidden h-fit rounded-panel border border-border bg-white p-5 lg:sticky lg:top-5 lg:block"}
+            ref={cartPanelRef}
+            role={cartOpen ? "dialog" : undefined}
+            tabIndex={-1}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3 lg:mb-0">
+              <h2 className="text-lg font-bold text-ink" id="public-cart-title">Your order</h2>
+          <Button aria-label="Close cart" className="lg:hidden" onClick={() => setCartOpen(false)} ref={cartCloseButtonRef} size="sm" type="button" variant="ghost">Close</Button>
+            </div>
             <p className="mt-1 text-sm text-ink-muted">Products stay separate; stock is shared across choices for each product.</p>
             {cartFeedback && <p className="mt-3 text-sm font-medium text-success-700" role="status">{cartFeedback}</p>}
             {cartLines.length === 0 ? (
@@ -312,11 +382,22 @@ export function PublicLivePage() {
           </aside>
         </form>
       )}
+      {cart.length > 0 && !cartOpen && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-white/95 px-4 pt-3 shadow-panel backdrop-blur lg:hidden" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+          <div className="mx-auto flex max-w-screen-sm items-center justify-between gap-3">
+            <div aria-live="polite" className="min-w-0">
+              <p className="truncate text-sm font-semibold text-ink">{cartQuantity} {cartQuantity === 1 ? "item" : "items"}</p>
+              <p className="text-xs text-ink-muted">Subtotal · {formatPesewas(cartTotal)}</p>
+            </div>
+            <Button onClick={() => setCartOpen(true)} ref={cartTriggerRef} type="button">View cart</Button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
-function OrderConfirmation({ live, order, onContinueShopping }: { live: PublicLive; order: CreatedCustomerOrder; onContinueShopping(): void }) {
+function OrderConfirmation({ live, order, onContinueShopping, refreshingAvailability }: { live: PublicLive; order: CreatedCustomerOrder; onContinueShopping(): void; refreshingAvailability: boolean }) {
   return (
     <>
       <PageHeader description={`Your order has been submitted to ${live.name}'s seller.`} eyebrow="Order submitted" title="Thanks for your order" />
@@ -347,7 +428,7 @@ function OrderConfirmation({ live, order, onContinueShopping }: { live: PublicLi
           </div>
           <p className="flex justify-between text-lg font-bold text-ink"><span>Order total</span><span className="tabular-nums">{formatPesewas(order.totalAmount)}</span></p>
           <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row">
-            <Button onClick={onContinueShopping} type="button">Continue shopping</Button>
+            <Button disabled={refreshingAvailability} onClick={onContinueShopping} type="button">{refreshingAvailability ? "Refreshing availability…" : "Continue shopping"}</Button>
             {live.tiktokLiveUrl && <a className={buttonClassName("secondary")} href={live.tiktokLiveUrl} rel="noopener noreferrer" target="_blank">Return to TikTok LIVE</a>}
           </div>
         </CardContent>
@@ -366,7 +447,7 @@ function SelectedOptions({ options }: { options: unknown }) {
 function ProductImage({ src, name }: { src?: string; name: string }) {
   const [failed, setFailed] = useState(false);
   return src && !failed ? (
-    <img alt={name} className="aspect-4/3 w-full rounded-panel bg-canvas object-cover" onError={() => setFailed(true)} src={src} />
+    <img alt={name} className="aspect-4/3 w-full rounded-panel bg-canvas object-contain" loading="lazy" onError={() => setFailed(true)} src={src} />
   ) : (
     <div className="grid aspect-4/3 place-items-center rounded-panel bg-canvas text-sm text-ink-muted">Image unavailable</div>
   );

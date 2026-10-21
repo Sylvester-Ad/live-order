@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -64,6 +64,53 @@ function renderStorefront() {
 }
 
 describe("public customer ordering", () => {
+  it("shows a live mobile cart summary and keeps the cart intact when the sheet closes", async () => {
+    const fetchMock = vi.fn(async () => response(liveResponse()));
+    vi.stubGlobal("fetch", fetchMock);
+    renderStorefront();
+
+    fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
+    expect(screen.getByText("2 items")).toBeInTheDocument();
+    expect(screen.getByText("Subtotal · GH₵ 51.00")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View cart" }));
+    const cartDialog = screen.getByRole("dialog", { name: "Your order" });
+    expect(cartDialog).toBeInTheDocument();
+    expect(screen.getByLabelText("Your name")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Place order" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Increase Cotton shirt quantity" }));
+    expect(screen.getByLabelText("Quantity 3")).toBeInTheDocument();
+    expect(screen.getByText("Estimated total").parentElement).toHaveTextContent("GH₵ 76.50");
+
+    fireEvent.click(within(cartDialog).getByRole("button", { name: "Close cart" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("3 items")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View cart" }));
+    expect(screen.getByLabelText("Quantity 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Cotton shirt" }));
+    expect(screen.getByText("Add products to start your order.")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Your order" })).getByRole("button", { name: "Close cart" }));
+    expect(screen.queryByRole("button", { name: "View cart" })).not.toBeInTheDocument();
+  });
+
+  it("refreshes public availability when browser navigation remounts the storefront", async () => {
+    let liveRequests = 0;
+    const fetchMock = vi.fn(async () => {
+      liveRequests += 1;
+      return response(liveResponse(liveRequests > 1 ? 4 : 7));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const router = createTestRouter(["/live/friday-collection"]);
+    render(<AppProviders><RouterProvider router={router} /></AppProviders>);
+
+    expect(await screen.findByText("7 available")).toBeInTheDocument();
+    await act(async () => { await router.navigate("/login"); });
+    await act(async () => { await router.navigate("/live/friday-collection"); });
+    expect(await screen.findByText("4 available")).toBeInTheDocument();
+    expect(liveRequests).toBeGreaterThanOrEqual(2);
+  });
+
   it("offers the TikTok broadcast link when the seller provides one", async () => {
     const fetchMock = vi.fn(async () => response(liveResponse(7, "https://www.tiktok.com/@creator/live")));
     vi.stubGlobal("fetch", fetchMock);
@@ -190,9 +237,13 @@ describe("public customer ordering", () => {
   });
 
   it("confirms with the TikTok link only when supplied and returns to shopping", async () => {
+    let liveRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse(7, "https://www.tiktok.com/@creator/live"));
+      if (url.endsWith("/api/v1/public/lives/friday-collection")) {
+        liveRequests += 1;
+        return response(liveResponse(liveRequests > 1 ? 5 : 7, "https://www.tiktok.com/@creator/live"));
+      }
       if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") return response({ data: confirmedOrder }, 201);
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
@@ -211,6 +262,8 @@ describe("public customer ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue shopping" }));
     expect(await screen.findByRole("heading", { name: "Friday collection" })).toBeInTheDocument();
     expect(screen.getByText("Add products to start your order.")).toBeInTheDocument();
+    expect(await screen.findByText("5 available")).toBeInTheDocument();
+    expect(liveRequests).toBe(2);
   });
 
   it("validates customer details against the order request before sending", async () => {
