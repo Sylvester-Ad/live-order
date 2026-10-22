@@ -9,4 +9,5 @@ export type StoredProductImage = {
 export interface ImageStorage {
   upload(input: { buffer: Buffer; mimeType: SupportedImageMimeType }): Promise<StoredProductImage>;
   delete(storageId: string): Promise<void>;
+  deliveryUrl(storageId: string, originalUrl: string): string;
 }

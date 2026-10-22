@@ -42,9 +42,19 @@ export async function createProduct(
   }).then(withPrimaryImage);
 }
 
-function withPrimaryImage<T extends { images: Array<{ id: string; url: string; createdAt: Date }> }>(product: T) {
+function withPrimaryImage<T extends { images: Array<{ id: string; url: string; storageId: string; provider: string; createdAt: Date }> }>(product: T) {
   const { images, ...fields } = product;
-  return { ...fields, image: images[0] ?? null };
+  const image = images[0];
+  return {
+    ...fields,
+    image: image
+      ? {
+          id: image.id,
+          url: getImageStorage(image.provider).deliveryUrl(image.storageId, image.url),
+          createdAt: image.createdAt,
+        }
+      : null,
+  };
 }
 
 export async function listProducts(creatorId: string, liveId: string) {

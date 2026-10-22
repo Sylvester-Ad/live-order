@@ -104,6 +104,34 @@ describe("Products API", () => {
     expect(listed.body.data.find((product: { id: string }) => product.id === created.body.data.id).stockQuantity).toBe(5);
   });
 
+  it("returns optimized Cloudinary image URLs from authenticated product listings", async () => {
+    const created = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .send({ name: "Product photo", price: 5000 })
+      .expect(201);
+
+    await prisma.productImage.create({
+      data: {
+        productId: created.body.data.id,
+        url: "https://res.cloudinary.com/test-cloud/image/upload/v123/test/product.png",
+        storageId: "test/product",
+        provider: "CLOUDINARY",
+      },
+    });
+
+    const response = await request(app)
+      .get(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .expect(200);
+
+    const imageUrl = new URL(response.body.data[0].image.url);
+    expect(imageUrl.origin).toBe("https://res.cloudinary.com");
+    expect(imageUrl.pathname).toBe(
+      "/test-cloud/image/upload/c_limit,h_900,w_1200/f_auto/q_auto/v123/test/product",
+    );
+  });
+
   it("rejects product creation without authentication", async () => {
     const response = await request(app)
       .post(`/api/v1/lives/${liveId}/products`)

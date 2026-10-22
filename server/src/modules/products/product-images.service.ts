@@ -11,9 +11,19 @@ function logImageCleanupFailure(operation: string, provider: string, storageId: 
   console.error("Product image cleanup failed", { operation, provider, storageId });
 }
 
-function productWithImage<T extends { images: Array<{ id: string; url: string; createdAt: Date }> }>(product: T) {
+function productWithImage<T extends { images: Array<{ id: string; url: string; storageId: string; provider: string; createdAt: Date }> }>(product: T) {
   const { images, ...fields } = product;
-  return { ...fields, image: images[0] ?? null };
+  const image = images[0];
+  return {
+    ...fields,
+    image: image
+      ? {
+          id: image.id,
+          url: getImageStorage(image.provider).deliveryUrl(image.storageId, image.url),
+          createdAt: image.createdAt,
+        }
+      : null,
+  };
 }
 
 function identifyImageFormat(buffer: Buffer, declaredMimeType: string): SupportedImageMimeType {

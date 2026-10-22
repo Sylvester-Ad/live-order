@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { prisma } from "../../database/prisma.js";
 import type { CreateLiveInput } from "./lives.schemas.js";
 import { AppError } from "../../shared/errors/app-error.js";
+import { getImageStorage } from "../products/image-storage/index.js";
 import type { UpdateLiveInput } from "./lives.schemas.js";
 
 function generateSlug(name: string): string {
@@ -99,7 +100,7 @@ export async function getPublicLiveBySlug(slug: string) {
           stockQuantity: true,
           images: {
             where: { isPrimary: true },
-            select: { id: true, url: true, createdAt: true },
+            select: { id: true, url: true, storageId: true, provider: true, createdAt: true },
             take: 1,
           },
         },
@@ -123,7 +124,16 @@ export async function getPublicLiveBySlug(slug: string) {
       options: product.options,
       stockQuantity: product.stockQuantity,
       available: product.stockQuantity > 0,
-      image: product.images[0] ?? null,
+      image: product.images[0]
+        ? {
+            id: product.images[0].id,
+            url: getImageStorage(product.images[0].provider).deliveryUrl(
+              product.images[0].storageId,
+              product.images[0].url,
+            ),
+            createdAt: product.images[0].createdAt,
+          }
+        : null,
     })),
   };
 }

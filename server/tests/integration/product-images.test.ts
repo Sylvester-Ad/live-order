@@ -26,7 +26,7 @@ describe("Product image service", () => {
       return { url: `https://images.example/${sequence}.png`, storageId: `asset-${sequence}`, provider: "CLOUDINARY" as const };
     });
     remove = vi.fn(async () => undefined);
-    storage = { upload, delete: remove };
+    storage = { upload, delete: remove, deliveryUrl: (_storageId, url) => url };
 
     const creator = await prisma.creator.create({
       data: { name: "Test Creator", accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`) },

@@ -50,7 +50,7 @@ describe("GET /api/v1/public/lives/:slug", () => {
     await prisma.productImage.create({
       data: {
         productId: product.id,
-        url: "https://images.example/shirt.png",
+        url: "https://res.cloudinary.com/test-cloud/image/upload/v123/test/shirt.png",
         storageId: "test/shirt",
         provider: "CLOUDINARY",
       },
@@ -75,9 +75,11 @@ describe("GET /api/v1/public/lives/:slug", () => {
       available: false,
       image: {
         id: expect.any(String),
-        url: "https://images.example/shirt.png",
       },
     });
+    expect(new URL(response.body.data.products[0].image.url).pathname).toBe(
+      "/test-cloud/image/upload/c_limit,h_900,w_1200/f_auto/q_auto/v123/test/shirt",
+    );
 
     expect(response.body.data.products).toHaveLength(1);
 

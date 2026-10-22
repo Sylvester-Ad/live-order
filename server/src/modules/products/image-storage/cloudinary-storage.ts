@@ -65,4 +65,32 @@ export const cloudinaryStorage: ImageStorage = {
       throw new AppError(502, "IMAGE_STORAGE_FAILED", "The product image could not be removed");
     }
   },
+
+  deliveryUrl(storageId: string, originalUrl: string): string {
+    let source: URL;
+    try {
+      source = new URL(originalUrl);
+    } catch {
+      return originalUrl;
+    }
+    const segments = source.pathname.split("/").filter(Boolean);
+    const uploadIndex = segments.findIndex((segment, index) => segment === "image" && segments[index + 1] === "upload");
+
+    if (source.hostname !== "res.cloudinary.com" || uploadIndex !== 1) return originalUrl;
+
+    const cloudName = segments[0];
+    const versionSegment = segments.slice(uploadIndex + 2).find((segment) => /^v\d+$/.test(segment));
+    if (!cloudName) return originalUrl;
+
+    return cloudinary.url(storageId, {
+      cloud_name: cloudName,
+      secure: true,
+      ...(versionSegment ? { version: Number(versionSegment.slice(1)) } : {}),
+      transformation: [
+        { width: 1200, height: 900, crop: "limit" },
+        { fetch_format: "auto" },
+        { quality: "auto" },
+      ],
+    });
+  },
 };
