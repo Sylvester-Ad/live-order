@@ -1,17 +1,21 @@
-import { mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureDatabaseFile, getDatabaseConfiguration } from "../config/database.js";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 const serverDirectory = path.resolve(scriptDirectory, "../..");
 const repositoryRoot = path.resolve(serverDirectory, "..");
 
-const databaseDirectory = path.join(repositoryRoot, "data");
-const databasePath = path.join(databaseDirectory, "test.db");
+const databasePath = path.join(repositoryRoot, "data", "test.db");
 
-mkdirSync(databaseDirectory, { recursive: true });
+const testEnvironment = {
+  ...process.env,
+  LIVEORDER_DATABASE_PATH: databasePath,
+  NODE_ENV: "test",
+};
+ensureDatabaseFile(getDatabaseConfiguration(testEnvironment).path, testEnvironment);
 
 console.log(`Preparing test database: ${databasePath}`);
 
@@ -21,12 +25,7 @@ const result = spawnSync(
   {
     cwd: repositoryRoot,
     stdio: "inherit",
-    env: {
-      ...process.env,
-      DATABASE_URL: "file:./data/test.db",
-      LIVEORDER_DATABASE_PATH: "../data/test.db",
-      NODE_ENV: "test",
-    },
+    env: testEnvironment,
   },
 );
 

@@ -12,11 +12,23 @@ import swaggerUi from "swagger-ui-express";
 import morgan from "morgan";
 import { errorHandler } from "./shared/errors/error-handler.js";
 import { createCorsOptions } from "./config/cors.js";
+import { prisma } from "./database/prisma.js";
 
 const app = express();
 let docsRouterPromise: Promise<express.Router> | undefined;
 
-app.use(morgan("dev"));
+const requestLogger = process.env.NODE_ENV === "production"
+  ? morgan<express.Request, express.Response>((_tokens, req, res) => JSON.stringify({
+      level: "info",
+      event: "http.request",
+      method: req.method,
+      route: typeof req.route?.path === "string" ? `${req.baseUrl}${req.route.path}` : "unmatched",
+      status: res.statusCode,
+      durationMs: Number(_tokens["response-time"]?.(req, res) ?? 0),
+    }))
+  : morgan("dev");
+
+app.use(requestLogger);
 app.use(cors(createCorsOptions()));
 app.use(express.json());
 app.use(cookieParser());
@@ -59,6 +71,20 @@ app.use("/api-docs", async (req, res, next) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ data: { status: "ok" } });
+});
+
+app.get("/api/health/ready", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ data: { status: "ok" } });
+  } catch {
+    return res.status(503).json({
+      error: {
+        code: "SERVICE_NOT_READY",
+        message: "A required service is unavailable",
+      },
+    });
+  }
 });
 
 app.use("/api/v1/creator", creatorsRouter);

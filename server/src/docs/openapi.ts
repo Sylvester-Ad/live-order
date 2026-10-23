@@ -41,6 +41,18 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/health/ready",
+  tags: ["System"],
+  summary: "Readiness check",
+  description: "Checks whether the API can reach its configured SQLite database.",
+  responses: {
+    200: jsonResponse("API and required dependencies are ready.", schemaRef("HealthResponse")),
+    503: errorResponse("A required dependency is unavailable."),
+  },
+});
+
 // POST /api/v1/creator/access
 registry.registerPath({
   method: "post",

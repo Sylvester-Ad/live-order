@@ -5,7 +5,13 @@
   "description": "",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node dist/server/src/server.js",
+    "build": "pnpm run clean && pnpm --dir .. db:generate && pnpm --dir .. exec tsc -p server/tsconfig.build.json",
+    "clean": "node scripts/clean-dist.mjs",
+    "typecheck": "pnpm --dir .. exec tsc --noEmit -p tsconfig.json",
+    "creator:create": "tsx src/scripts/create-creator.ts",
+    "creator:create:production": "node dist/server/src/scripts/create-creator.js",
+    "migrate:deploy:production": "node dist/server/src/scripts/migrate-deploy.js",
     "test:prepare": "tsx src/scripts/prepare-test-db.ts",
     "test": "pnpm run test:prepare && vitest run",
     "test:watch": "pnpm run test:prepare && vitest"
