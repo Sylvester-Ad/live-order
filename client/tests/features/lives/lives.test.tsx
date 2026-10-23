@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,12 +26,16 @@ function response(data: unknown, status = 200) {
   });
 }
 
-function renderPath(path: string) {
+function renderPath(path: string, queryClient?: QueryClient) {
   return render(
-    <AppProviders>
-      <RouterProvider router={createTestRouter([path])} />
-    </AppProviders>,
+    queryClient
+      ? <QueryClientProvider client={queryClient}><RouterProvider router={createTestRouter([path])} /></QueryClientProvider>
+      : <AppProviders><RouterProvider router={createTestRouter([path])} /></AppProviders>,
   );
+}
+
+function createTestQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
 }
 
 function authenticatedFetch(lives: unknown[] = [draftLive]) {
@@ -209,6 +214,58 @@ describe("seller Live management", () => {
     expect(await screen.findByText("TikTok LIVE link saved.")).toBeInTheDocument();
     const updateCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ tiktokLiveUrl: "https://live.tiktok.com/@creator/live" });
+  });
+
+  it("refreshes an untouched TikTok URL but preserves the creator's draft during later refetches", async () => {
+    let current: Live = { ...draftLive, tiktokLiveUrl: null };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/creator/me")) return response({ data: creator });
+      if (url.endsWith("/v1/lives")) return response({ data: [current] });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const queryClient = createTestQueryClient();
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1", queryClient);
+
+    await screen.findByLabelText("TikTok LIVE URL");
+    current = { ...current, tiktokLiveUrl: "https://www.tiktok.com/@creator/latest" };
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["lives"] }); });
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/v1/lives")).length).toBeGreaterThan(1));
+    expect(screen.getByLabelText("TikTok LIVE URL")).toHaveValue(current.tiktokLiveUrl);
+
+    fireEvent.change(screen.getByLabelText("TikTok LIVE URL"), { target: { value: "https://live.tiktok.com/@creator/my-draft" } });
+    current = { ...current, tiktokLiveUrl: "https://www.tiktok.com/@creator/changed-again" };
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["lives"] }); });
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/v1/lives")).length).toBeGreaterThan(2));
+    expect(screen.getByLabelText("TikTok LIVE URL")).toHaveValue("https://live.tiktok.com/@creator/my-draft");
+    queryClient.clear();
+  });
+
+  it("initializes the correct TikTok link when navigating to a different Live", async () => {
+    const otherLive: Live = {
+      ...draftLive,
+      id: "live-2",
+      name: "Saturday market",
+      slug: "saturday-market-a1b2c3d4",
+      tiktokLiveUrl: "https://www.tiktok.com/@creator/saturday",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/creator/me")) return response({ data: creator });
+      if (String(input).endsWith("/v1/lives")) return response({ data: [draftLive, otherLive] });
+      throw new Error(`Unexpected request: ${String(input)}`);
+    });
+    const queryClient = createTestQueryClient();
+    const router = createTestRouter(["/lives/live-1"]);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
+
+    fireEvent.change(await screen.findByLabelText("TikTok LIVE URL"), { target: { value: "https://live.tiktok.com/@creator/first-draft" } });
+    await act(async () => { await router.navigate("/lives/live-2"); });
+
+    expect(await screen.findByLabelText("TikTok LIVE URL")).toHaveValue(otherLive.tiktokLiveUrl);
+    expect(screen.getByRole("heading", { name: "Saturday market" })).toBeInTheDocument();
+    queryClient.clear();
   });
 
   it("shows backend validation errors when Live creation is rejected", async () => {

@@ -1,9 +1,11 @@
 import request from "supertest";
 import app from "../../src/app.js";
 import { randomUUID } from "node:crypto";
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../../src/database/prisma.js";
 import { hashAccessCode } from "../../src/shared/utils/credentials.js";
+import { AppError } from "../../src/shared/errors/app-error.js";
+import { cloudinaryStorage } from "../../src/modules/products/image-storage/cloudinary-storage.js";
 import { resetTestDatabase } from "../helpers/test-database.js";
 
 describe("Products API", () => {
@@ -50,7 +52,58 @@ describe("Products API", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await resetTestDatabase();
+  });
+
+  it("creates a product and its primary image together after a successful upload", async () => {
+    const upload = vi.spyOn(cloudinaryStorage, "upload").mockResolvedValue({
+      url: "https://res.cloudinary.com/test-cloud/image/upload/v123/test/shirt.jpg",
+      storageId: "test/shirt",
+      provider: "CLOUDINARY",
+    });
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .field("product", JSON.stringify({ name: "Product with photo", price: 2500, stockQuantity: 4 }))
+      .attach("image", Buffer.from([0xff, 0xd8, 0xff]), { filename: "shirt.jpg", contentType: "image/jpeg" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data).toMatchObject({ name: "Product with photo", stockQuantity: 4 });
+    expect(response.body.data.image.url).toContain("res.cloudinary.com");
+    expect(upload).toHaveBeenCalledOnce();
+    expect(await prisma.product.count()).toBe(1);
+    expect(await prisma.productImage.count({ where: { productId: response.body.data.id, isPrimary: true } })).toBe(1);
+  });
+
+  it("does not create the product when the image provider rejects the upload", async () => {
+    vi.spyOn(cloudinaryStorage, "upload").mockRejectedValue(
+      new AppError(502, "IMAGE_STORAGE_FAILED", "The product image could not be uploaded"),
+    );
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .field("product", JSON.stringify({ name: "Product with photo", price: 2500 }))
+      .attach("image", Buffer.from([0xff, 0xd8, 0xff]), { filename: "shirt.jpg", contentType: "image/jpeg" });
+
+    expect(response.status).toBe(502);
+    expect(response.body.error.code).toBe("IMAGE_STORAGE_FAILED");
+    expect(await prisma.product.count()).toBe(0);
+    expect(await prisma.productImage.count()).toBe(0);
+  });
+
+  it("does not create a product when the selected image bytes are not a valid JPEG", async () => {
+    const upload = vi.spyOn(cloudinaryStorage, "upload");
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .field("product", JSON.stringify({ name: "Product with photo", price: 2500 }))
+      .attach("image", Buffer.from("not jpeg"), { filename: "shirt.jpg", contentType: "image/jpeg" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("INVALID_IMAGE_FORMAT");
+    expect(upload).not.toHaveBeenCalled();
+    expect(await prisma.product.count()).toBe(0);
   });
 
   it("creates a product belonging to the creator's Live", async () => {

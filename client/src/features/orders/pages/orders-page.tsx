@@ -32,8 +32,9 @@ export function OrdersPage() {
   const [paidNotice, setPaidNotice] = useState(false);
   const [exportError, setExportError] = useState(false);
 
-  if (lives.isPending || lives.isFetching) return <LoadingState label="Loading Live details…" />;
-  if (lives.isError) return <RequestFailure label="We couldn't load the selected Live." onRetry={() => void lives.refetch()} />;
+  if (lives.isPending) return <LoadingState label="Loading Live details…" />;
+  if (lives.isError && !lives.data) return <RequestFailure label="We couldn't load the selected Live." onRetry={() => void lives.refetch()} />;
+  if (!lives.data) return <LoadingState label="Loading Live details…" />;
   const live = lives.data.find((item) => item.id === liveId);
   if (!live) return <EmptyState description="This Live may have been removed or may not belong to your account." title="Live not found" action={<Link className={buttonClassName("secondary")} to="/lives">All Lives</Link>} />;
   const selectedLive = live;

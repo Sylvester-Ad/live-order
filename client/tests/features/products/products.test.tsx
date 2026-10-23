@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,12 +40,16 @@ function response(data: unknown, status = 200) {
   });
 }
 
-function renderPath(path: string) {
+function renderPath(path: string, queryClient?: QueryClient) {
   return render(
-    <AppProviders>
-      <RouterProvider router={createTestRouter([path])} />
-    </AppProviders>,
+    queryClient
+      ? <QueryClientProvider client={queryClient}><RouterProvider router={createTestRouter([path])} /></QueryClientProvider>
+      : <AppProviders><RouterProvider router={createTestRouter([path])} /></AppProviders>,
   );
+}
+
+function createTestQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
 }
 
 function productFetch(initialProducts: Product[] = [], rejectDelete = true, failFirstImageUpload = false) {
@@ -58,8 +63,22 @@ function productFetch(initialProducts: Product[] = [], rejectDelete = true, fail
       return response({ data: products });
     }
     if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { name: string; price: number; stockQuantity: number; options?: unknown };
-      const created = product({ id: "product-new", ...body, options: body.options ?? null });
+      const formData = init.body instanceof FormData ? init.body : null;
+      if (formData?.has("image")) {
+        imageUploads += 1;
+        if (failFirstImageUpload && imageUploads === 1) {
+          return response({ error: { code: "IMAGE_STORAGE_FAILED", message: "Upload failed" } }, 502);
+        }
+      }
+      const body = JSON.parse(formData ? String(formData.get("product")) : String(init.body)) as { name: string; price: number; stockQuantity: number; options?: unknown };
+      const created = product({
+        id: "product-new",
+        ...body,
+        options: body.options ?? null,
+        image: formData?.has("image")
+          ? { id: "image-1", url: "https://images.example/product.png", createdAt: "2026-10-12T10:00:00.000Z" }
+          : null,
+      });
       products = [...products, created];
       return response({ data: created }, 201);
     }
@@ -118,6 +137,88 @@ afterEach(() => {
 });
 
 describe("seller product management", () => {
+  it("keeps create-form values when the Live query refetches and fails", async () => {
+    let liveRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/lives")) {
+        liveRequests += 1;
+        return liveRequests === 1
+          ? response({ data: [live] })
+          : response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Refresh failed" } }, 500);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const queryClient = createTestQueryClient();
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/new", queryClient);
+
+    const nameInput = await screen.findByLabelText("Product name");
+    fireEvent.change(nameInput, { target: { value: "My unsaved product" } });
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["lives"] }); });
+
+    expect(screen.getByLabelText("Product name")).toHaveValue("My unsaved product");
+    expect(screen.getByRole("button", { name: "Create product" })).toBeEnabled();
+    await screen.findByText("The latest Live or product data could not be refreshed. Your current form values are preserved.");
+    queryClient.clear();
+  });
+
+  it("preserves edited product values across a successful background refetch", async () => {
+    let productRequests = 0;
+    let currentProduct = product();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/lives/live-1/products")) {
+        productRequests += 1;
+        if (productRequests >= 2) currentProduct = product({ name: "Server refreshed name", price: 4000, stockQuantity: 20 });
+        return response({ data: [currentProduct] });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const queryClient = createTestQueryClient();
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/product-1/edit", queryClient);
+
+    const nameInput = await screen.findByLabelText("Product name");
+    fireEvent.change(nameInput, { target: { value: "My product draft" } });
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["products", "live-1"] }); });
+    await waitFor(() => expect(productRequests).toBeGreaterThan(1));
+
+    expect(screen.getByLabelText("Product name")).toHaveValue("My product draft");
+    expect(screen.getByLabelText("Price (GHS)")).toHaveValue("40.00");
+    expect(screen.getByLabelText("Stock quantity")).toHaveValue(20);
+    expect(screen.queryByText("Loading product…")).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it("initializes a different product when the route changes without leaking the previous draft", async () => {
+    const otherLive = { ...live, id: "live-2", name: "Saturday market" };
+    const otherProduct = product({ id: "product-2", liveId: "live-2", name: "Canvas tote", price: 1200, stockQuantity: 3 });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/lives")) return response({ data: [live, otherLive] });
+      if (url.endsWith("/api/v1/lives/live-1/products")) return response({ data: [product()] });
+      if (url.endsWith("/api/v1/lives/live-2/products")) return response({ data: [otherProduct] });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const queryClient = createTestQueryClient();
+    const router = createTestRouter(["/lives/live-1/products/product-1/edit"]);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
+
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Unsaved first product" } });
+    await act(async () => { await router.navigate("/lives/live-2/products/product-2/edit"); });
+
+    expect(await screen.findByLabelText("Product name")).toHaveValue("Canvas tote");
+    expect(screen.getByLabelText("Price (GHS)")).toHaveValue("12.00");
+    expect(screen.getByText("Update product details for Saturday market.")).toBeInTheDocument();
+    queryClient.clear();
+  });
+
   it("lists only the selected Live's products with formatted price and options", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
@@ -232,7 +333,7 @@ describe("seller product management", () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
-  it("saves a product once and retries its image upload without creating a duplicate", async () => {
+  it("does not create a product when its image upload fails and retries the combined create", async () => {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:new-product" });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => undefined });
     const fetchMock = productFetch([], true, true);
@@ -243,17 +344,20 @@ describe("seller product management", () => {
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Limited bag" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.00" } });
     fireEvent.change(screen.getByLabelText("Stock quantity"), { target: { value: "5" } });
-    fireEvent.change(screen.getByLabelText("Choose an image"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText("Choose an image file"), { target: { files: [file] } });
     expect(screen.getByRole("img", { name: "Limited bag product preview" })).toHaveAttribute("src", "blob:new-product");
 
     fireEvent.click(screen.getByRole("button", { name: "Create product" }));
-    expect(await screen.findByText("Product saved, but its image could not be uploaded.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry image upload" })).toBeInTheDocument();
+    expect(await screen.findByText("The image provider could not save the image. No product was created; check the image and try again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Product name")).toHaveValue("Limited bag");
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry image upload" }));
-    expect(await screen.findByText("Product created.")).toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/products") && init?.method === "POST")).toHaveLength(1);
-    expect(fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/image") && init?.method === "POST")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+    expect(await screen.findByRole("heading", { name: "Products" })).toBeInTheDocument();
+    const productCreateCalls = fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/products") && init?.method === "POST");
+    expect(productCreateCalls).toHaveLength(2);
+    expect(productCreateCalls.every(([, init]) => init?.body instanceof FormData)).toBe(true);
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/image") && init?.method === "POST")).toBe(false);
+    expect(await screen.findByText("Limited bag")).toBeInTheDocument();
   });
 
   it("edits option group and choices while preserving the configured options format", async () => {
@@ -395,7 +499,7 @@ describe("seller product management", () => {
     renderPath("/lives/live-1/products/product-1/edit");
 
     const file = new File(["image"], "shirt.png", { type: "image/png" });
-    fireEvent.change(await screen.findByLabelText("Choose an image"), { target: { files: [file] } });
+    fireEvent.change(await screen.findByLabelText("Choose an image file"), { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: "Upload image" }));
 
     expect(await screen.findByText("Product image updated.")).toBeInTheDocument();

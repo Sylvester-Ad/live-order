@@ -69,8 +69,12 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
+    const addButton = await screen.findByRole("button", { name: "Add to order" });
+    expect(addButton).toBeDisabled();
+    fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
+    expect(addButton).toBeEnabled();
     fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
+    fireEvent.click(addButton);
     expect(screen.getByText("2 items")).toBeInTheDocument();
     expect(screen.getByText("Subtotal · GH₵ 51.00")).toBeInTheDocument();
 
@@ -190,6 +194,7 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
+    fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
@@ -222,6 +227,7 @@ describe("public customer ordering", () => {
     renderStorefront();
 
     const quantity = await screen.findByLabelText("Quantity to add for Cotton shirt");
+    fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.change(quantity, { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
@@ -250,6 +256,7 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
+    fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
@@ -271,6 +278,7 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
+    fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.click(await screen.findByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "   " } });
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });

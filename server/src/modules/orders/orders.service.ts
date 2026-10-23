@@ -207,13 +207,29 @@ export async function createOrder(
 }
 
 function validateOptionSelection(options: unknown, selection: Record<string, unknown> | undefined) {
-  if (!selection || Object.keys(selection).length === 0) return;
-  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+  const selectionEntries = Object.entries(selection ?? {});
+  const optionsObject = typeof options === "object" && options !== null && !Array.isArray(options)
+    ? options as Record<string, unknown>
+    : null;
+
+  // Options in the currently supported representation are required customer
+  // preferences. Leave unknown legacy formats untouched for compatibility.
+  const optionsAreSupported = optionsObject !== null && Object.values(optionsObject).every(
+    (choices) => Array.isArray(choices) && choices.every((choice) => typeof choice === "string"),
+  );
+  if (optionsAreSupported && Object.keys(optionsObject).some(
+    (group) => typeof selection?.[group] !== "string" || !selection[group],
+  )) {
     throw new AppError(400, "INVALID_PRODUCT_OPTIONS", "The selected options are not available for this product");
   }
 
-  for (const [group, choice] of Object.entries(selection)) {
-    const choices: unknown = (options as Record<string, unknown>)[group];
+  if (selectionEntries.length === 0) return;
+  if (!optionsObject) {
+    throw new AppError(400, "INVALID_PRODUCT_OPTIONS", "The selected options are not available for this product");
+  }
+
+  for (const [group, choice] of selectionEntries) {
+    const choices = optionsObject[group];
     if (typeof choice !== "string" || !Array.isArray(choices) || !choices.includes(choice)) {
       throw new AppError(400, "INVALID_PRODUCT_OPTIONS", "The selected options are not available for this product");
     }

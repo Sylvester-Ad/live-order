@@ -117,7 +117,13 @@ export function PublicLivePage() {
 
   function addToOrder(product: PublicLive["products"][number]) {
     const requestedQuantity = addQuantities[product.id] ?? 1;
-    const result = addProductToCart(cart, product.id, requestedQuantity, selections[product.id] ?? {}, product.stockQuantity);
+    const selectedOptions = selections[product.id] ?? {};
+    const optionGroups = readProductOptionGroups(product.options);
+    if (optionGroups.supported && optionGroups.groups.some((group) => !group.choices.includes(selectedOptions[group.name] ?? ""))) {
+      setCartFeedback(`Choose every preference for ${product.name} before adding it to your order.`);
+      return;
+    }
+    const result = addProductToCart(cart, product.id, requestedQuantity, selectedOptions, product.stockQuantity);
     setCart(result.cart);
     setCartFeedback(result.added > 0
       ? `Added ${result.added} ${product.name} ${result.added === 1 ? "item" : "items"} to your order.`
@@ -252,6 +258,10 @@ export function PublicLivePage() {
           <section aria-label="Products" className="grid content-start gap-4 sm:grid-cols-2">
             {live.products.map((product) => {
               const optionGroups = readProductOptionGroups(product.options);
+              const selectedOptions = selections[product.id] ?? {};
+              const missingPreference = optionGroups.supported && optionGroups.groups.some(
+                (group) => !group.choices.includes(selectedOptions[group.name] ?? ""),
+              );
               const alreadyInCart = productQuantityInCart(cart, product.id);
               const remainingStock = Math.max(0, product.stockQuantity - alreadyInCart);
               const selectedQuantity = Math.min(addQuantities[product.id] ?? 1, remainingStock, 100);
@@ -270,9 +280,10 @@ export function PublicLivePage() {
                         <p className="text-sm text-ink-muted">{product.stockQuantity} available</p>
                         {optionGroups.supported && optionGroups.groups.map((group) => (
                           <label className="grid gap-1.5 text-sm font-medium text-ink" key={`${product.id}:${group.id}`}>
-                            {group.name}
+                            {group.name} <span aria-hidden="true" className="text-danger-700">*</span>
                             <select
                               aria-label={`Choose ${group.name} for ${product.name}`}
+                              aria-required="true"
                               className="min-h-11 rounded-control border border-border bg-white px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
                               disabled={uncertainSubmission}
                               onChange={(event) => setSelections((current) => {
@@ -283,11 +294,12 @@ export function PublicLivePage() {
                               })}
                               value={selections[product.id]?.[group.name] ?? ""}
                             >
-                              <option value="">No preference</option>
+                              <option value="">Choose an option</option>
                               {group.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
                             </select>
                           </label>
                         ))}
+                        {missingPreference && <p className="text-sm text-ink-muted">Choose every preference before adding this product.</p>}
                         {!optionGroups.supported && product.options != null && (
                           <p className="text-sm text-ink-muted">This product has older option details; contact the seller to confirm your preference.</p>
                         )}
@@ -309,7 +321,7 @@ export function PublicLivePage() {
                               value={remainingStock === 0 ? 0 : selectedQuantity}
                             />
                           </label>
-                          <Button disabled={uncertainSubmission || remainingStock === 0 || selectedQuantity < 1} onClick={() => addToOrder(product)} type="button">
+                          <Button disabled={uncertainSubmission || remainingStock === 0 || selectedQuantity < 1 || missingPreference} onClick={() => addToOrder(product)} type="button">
                             {remainingStock === 0 ? "Stock limit reached" : "Add to order"}
                           </Button>
                         </div>

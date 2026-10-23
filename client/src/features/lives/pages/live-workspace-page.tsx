@@ -18,10 +18,11 @@ export function LiveWorkspacePage() {
   const updateLive = useUpdateLive();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
 
-  if (lives.isPending || lives.isFetching) return <LoadingState label="Loading this Live…" />;
-  if (lives.isError) {
+  if (lives.isPending) return <LoadingState label="Loading this Live…" />;
+  if (lives.isError && !lives.data) {
     return <RequestFailure label="We couldn't load this Live." onRetry={() => void lives.refetch()} />;
   }
+  if (!lives.data) return <LoadingState label="Loading this Live…" />;
 
   const live = lives.data?.find((item) => item.id === liveId);
   if (!live) {
@@ -68,6 +69,9 @@ export function LiveWorkspacePage() {
         action={<LiveStatusBadge status={live.status} />}
       />
 
+      {lives.isFetching && <p aria-live="polite" className="mb-4 text-sm text-ink-muted">Refreshing Live details…</p>}
+      {lives.isError && <div className="mb-5"><Notice title="Live details could not be refreshed. Your current work remains available." /></div>}
+
       {showCreatedNotice && <div className="mb-5"><Notice title="Live created successfully." tone="success" /></div>}
 
       {updateLive.isError && live.status !== "ACTIVE" && (
@@ -97,7 +101,7 @@ export function LiveWorkspacePage() {
         </CardContent>
       </Card>
 
-      <TikTokLiveLinkEditor liveId={live.id} value={live.tiktokLiveUrl} />
+      <TikTokLiveLinkEditor key={live.id} liveId={live.id} value={live.tiktokLiveUrl} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <WorkspaceCard
@@ -141,7 +145,8 @@ export function LiveWorkspacePage() {
 }
 
 function TikTokLiveLinkEditor({ liveId, value }: { liveId: string; value: string | null }) {
-  const [url, setUrl] = useState(value ?? "");
+  const [draftUrl, setDraftUrl] = useState<string | undefined>(undefined);
+  const url = draftUrl ?? value ?? "";
   const [saved, setSaved] = useState(false);
   const updateLive = useUpdateLive();
 
@@ -150,7 +155,10 @@ function TikTokLiveLinkEditor({ liveId, value }: { liveId: string; value: string
     setSaved(false);
     updateLive.mutate(
       { liveId, input: { tiktokLiveUrl: url.trim() || null } },
-      { onSuccess: () => setSaved(true) },
+      { onSuccess: () => {
+        setDraftUrl(undefined);
+        setSaved(true);
+      } },
     );
   }
 
@@ -165,7 +173,7 @@ function TikTokLiveLinkEditor({ liveId, value }: { liveId: string; value: string
             error={invalidUrl ? "Use an HTTPS URL from tiktok.com, www.tiktok.com, m.tiktok.com, or live.tiktok.com." : undefined}
             hint="Optional. Add or update the broadcast link customers can return to."
             label="TikTok LIVE URL"
-            onChange={(event) => { setUrl(event.currentTarget.value); setSaved(false); }}
+            onChange={(event) => { setDraftUrl(event.currentTarget.value); setSaved(false); }}
             placeholder="https://www.tiktok.com/@yourname/live"
             type="url"
             value={url}

@@ -58,16 +58,21 @@ export function ProductImageField({
       ) : (
         <div className="grid aspect-4/3 max-w-sm place-items-center rounded-panel bg-canvas text-sm text-ink-muted">No product image selected</div>
       )}
-      <label className="grid max-w-md gap-2 text-sm font-semibold text-ink">
-        Choose an image
-        <input
-          accept="image/jpeg,image/png,image/webp"
-          disabled={disabled || pending || removePending}
-          onChange={(event) => selectFile(event.currentTarget.files?.[0] ?? null)}
-          ref={fileInput}
-          type="file"
-        />
-      </label>
+      <input
+        accept="image/jpeg,image/png,image/webp"
+        aria-label="Choose an image file"
+        className="sr-only"
+        disabled={disabled || pending || removePending}
+        onChange={(event) => selectFile(event.currentTarget.files?.[0] ?? null)}
+        ref={fileInput}
+        type="file"
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Button disabled={disabled || pending || removePending} onClick={() => fileInput.current?.click()} type="button" variant="secondary">
+          {currentImageUrl ? "Choose a replacement image" : "Choose image"}
+        </Button>
+        {file ? <span className="min-w-0 break-all text-sm text-ink-muted">Selected: {file.name}</span> : null}
+      </div>
       {fileError && <p className="text-sm text-danger-700" role="alert">{fileError}</p>}
       {file && <Button disabled={disabled || pending || removePending} onClick={() => {
         selectFile(null);

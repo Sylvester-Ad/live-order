@@ -17,10 +17,25 @@ import { AppError } from "../../shared/errors/app-error.js";
 import { removeProductImage, productImageValidation, uploadProductImage } from "./product-images.service.js";
 
 const router = Router();
+const createProductParser = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: productImageValidation.maxBytes, files: 1, fields: 1 },
+}).single("image");
 const parseImage = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: productImageValidation.maxBytes, files: 1, fields: 0 },
 }).single("image");
+
+const createProductUploadMiddleware: import("express").RequestHandler = (req, res, next) => {
+  if (!req.is("multipart/form-data")) return next();
+  createProductParser(req, res, (error: unknown) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      return next(new AppError(413, "IMAGE_TOO_LARGE", "Product images must be 5 MB or smaller"));
+    }
+    return next(new AppError(400, "INVALID_IMAGE_UPLOAD", "Choose one image file and include product details"));
+  });
+};
 
 const imageUploadMiddleware: import("express").RequestHandler = (req, res, next) => {
   parseImage(req, res, (error: unknown) => {
@@ -61,9 +76,22 @@ router.get(
 router.post(
   "/lives/:liveId/products",
   requireCreator,
+  createProductUploadMiddleware,
   async (req, res, next) => {
     try {
-      const input = createProductSchema.parse(req.body);
+      let body: unknown = req.body;
+      if (req.is("multipart/form-data")) {
+        if (typeof req.body.product !== "string") {
+          throw new AppError(400, "INVALID_PRODUCT_UPLOAD", "Product details are required with an image");
+        }
+        try {
+          body = JSON.parse(req.body.product) as unknown;
+        } catch {
+          throw new AppError(400, "INVALID_PRODUCT_UPLOAD", "Product details could not be read");
+        }
+        if (!req.file) throw new AppError(400, "IMAGE_REQUIRED", "Choose an image to upload");
+      }
+      const input = createProductSchema.parse(body);
 
       const liveId = req.params.liveId;
 
@@ -75,7 +103,7 @@ router.post(
         );
       }
 
-      const product = await createProduct(req.creator!.id, liveId, input);
+      const product = await createProduct(req.creator!.id, liveId, input, req.file);
 
       return res.status(201).json({
         data: productResponseSchema.parse(product),

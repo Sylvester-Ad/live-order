@@ -278,6 +278,25 @@ describe("Orders API", () => {
     expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(20);
   });
 
+  it.each([
+    undefined,
+    { Size: "M" },
+  ])("requires every configured product preference (%s)", async (selectedOptions) => {
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: tShirtId, quantity: 1, ...(selectedOptions ? { selectedOptions } : {}) }],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("INVALID_PRODUCT_OPTIONS");
+    expect(await prisma.order.count()).toBe(0);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(20);
+  });
+
   it("allows only one concurrent request to buy the last unit", async () => {
     await prisma.product.update({ where: { id: capId }, data: { stockQuantity: 1 } });
     const makeOrder = () => request(app)
@@ -377,7 +396,7 @@ describe("Orders API", () => {
       customerName: "Ama Mensah",
       customerPhone: "0241234567",
       deliveryLocation: "Madina, Accra",
-      items: [{ productId: tShirtId, quantity: 1 }],
+      items: [{ productId: tShirtId, quantity: 1, selectedOptions: { Size: "M", Colour: "Black" } }],
     };
     const failed = await request(app)
       .post(`/api/v1/lives/${liveId}/orders`)

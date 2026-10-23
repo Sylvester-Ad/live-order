@@ -20,8 +20,8 @@ export function useCreateProduct() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ liveId, input }: { liveId: string; input: CreateProductInput }) =>
-      productsApi.create(liveId, input),
+    mutationFn: ({ liveId, input, image }: { liveId: string; input: CreateProductInput; image?: File }) =>
+      productsApi.create(liveId, input, image),
     onSuccess: async (createdProduct, { liveId }) => {
       const queryKey = productsQueryKey(liveId);
       queryClient.setQueryData<Product[]>(queryKey, (products) =>

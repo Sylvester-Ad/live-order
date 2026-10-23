@@ -23,13 +23,14 @@ export function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [deletedNotice, setDeletedNotice] = useState(false);
 
-  if (lives.isPending || lives.isFetching || products.isPending || products.isFetching) {
+  if (lives.isPending || products.isPending) {
     return <LoadingState label="Loading products for this Live…" />;
   }
 
-  if (lives.isError) {
+  if (lives.isError && !lives.data) {
     return <RequestFailure label="We couldn't load this Live." onRetry={() => void lives.refetch()} />;
   }
+  if (!lives.data) return <LoadingState label="Loading products for this Live…" />;
 
   const live = lives.data.find((item) => item.id === liveId);
   if (!live) {
@@ -42,7 +43,7 @@ export function ProductsPage() {
     );
   }
 
-  if (products.isError) {
+  if (products.isError && !products.data) {
     return (
       <>
         <WorkspaceBackLink liveId={liveId} />
@@ -51,6 +52,7 @@ export function ProductsPage() {
       </>
     );
   }
+  if (!products.data) return <LoadingState label="Loading products for this Live…" />;
 
   const liveProducts = products.data.filter((product) => product.liveId === liveId);
 
@@ -97,6 +99,9 @@ export function ProductsPage() {
         <LiveStatusBadge status={live.status} />
         <span className="font-semibold text-ink">{live.name}</span>
       </div>
+
+      {(lives.isFetching || products.isFetching) && <p aria-live="polite" className="mb-4 text-sm text-ink-muted">Refreshing product information…</p>}
+      {(lives.isError || products.isError) && <div className="mb-5"><Notice title="The latest information could not be refreshed. Showing the last loaded data." /></div>}
 
       {noticeMessage && (
         <div className="mb-5">

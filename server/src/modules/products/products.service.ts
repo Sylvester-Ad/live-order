@@ -6,11 +6,13 @@ import type {
 } from "./products.schemas.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { getImageStorage } from "./image-storage/index.js";
+import { identifyImageFormat } from "./product-images.service.js";
 
 export async function createProduct(
   creatorId: string,
   liveId: string,
   input: CreateProductInput,
+  imageFile?: { buffer: Buffer; mimetype: string },
 ) {
   const live = await prisma.live.findFirst({
     where: {
@@ -30,16 +32,59 @@ export async function createProduct(
     );
   }
 
-  return prisma.product.create({
-    data: {
-      liveId,
-      name: input.name,
-      price: input.price,
-      stockQuantity: input.stockQuantity ?? 0,
-      options: input.options as Prisma.InputJsonValue | undefined,
-    },
-    include: { images: { where: { isPrimary: true }, take: 1 } },
-  }).then(withPrimaryImage);
+  const storage = imageFile ? getImageStorage() : undefined;
+  const storedImage = imageFile && storage
+    ? await storage.upload({
+        buffer: imageFile.buffer,
+        mimeType: identifyImageFormat(imageFile.buffer, imageFile.mimetype),
+      })
+    : undefined;
+
+  try {
+    const product = await prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({
+        data: {
+          liveId,
+          name: input.name,
+          price: input.price,
+          stockQuantity: input.stockQuantity ?? 0,
+          options: input.options as Prisma.InputJsonValue | undefined,
+        },
+      });
+
+      if (storedImage) {
+        await tx.productImage.create({
+          data: {
+            productId: created.id,
+            url: storedImage.url,
+            storageId: storedImage.storageId,
+            provider: storedImage.provider,
+            isPrimary: true,
+          },
+        });
+      }
+
+      return tx.product.findUniqueOrThrow({
+        where: { id: created.id },
+        include: { images: { where: { isPrimary: true }, take: 1 } },
+      });
+    });
+
+    return withPrimaryImage(product);
+  } catch (error) {
+    if (storedImage && storage) {
+      try {
+        await storage.delete(storedImage.storageId);
+      } catch {
+        console.error("Product image cleanup failed", {
+          operation: "remove_failed_product_creation_upload",
+          provider: storedImage.provider,
+          storageId: storedImage.storageId,
+        });
+      }
+    }
+    throw error;
+  }
 }
 
 function withPrimaryImage<T extends { images: Array<{ id: string; url: string; storageId: string; provider: string; createdAt: Date }> }>(product: T) {

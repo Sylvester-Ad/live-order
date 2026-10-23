@@ -276,7 +276,7 @@ registry.registerPath({
   tags: ["Products"],
   summary: "Create a product",
   description:
-    "Adds a product to a Live owned by the authenticated creator. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.",
+    "Adds a product to a Live owned by the authenticated creator. The request may be JSON without an image or multipart form data with a JSON product field and one JPEG, PNG, or WebP image up to 5 MB. When an image is supplied, the image and product are persisted together after the provider upload succeeds. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -286,7 +286,15 @@ registry.registerPath({
     }),
     body: {
       required: true,
-      content: jsonContent(schemaRef("CreateProductRequest")),
+      content: {
+        "application/json": { schema: schemaRef("CreateProductRequest") },
+        "multipart/form-data": {
+          schema: z.object({
+            product: z.string().openapi({ description: "JSON-encoded CreateProductRequest." }),
+            image: z.string().openapi({ type: "string", format: "binary" }),
+          }),
+        },
+      },
     },
   },
   responses: {
@@ -297,6 +305,9 @@ registry.registerPath({
     400: errorResponse("Invalid Live ID or product data."),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Live not found or not owned by the creator."),
+    413: errorResponse("Product image exceeds 5 MB."),
+    502: errorResponse("Image storage provider could not store the image."),
+    503: errorResponse("Image storage is not configured."),
   },
 });
 
@@ -359,7 +370,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Place an order",
   description:
-    "Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.",
+    "Creates a customer order for an active Live. Each configured product option group requires one valid customer selection. The backend uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.",
   request: {
     params: z.object({
       liveId: z.string().openapi({
