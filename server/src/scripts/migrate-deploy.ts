@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import {
   ensureDatabaseFile,
   getDatabaseConfiguration,
@@ -12,8 +13,14 @@ const database = getDatabaseConfiguration(environment);
 ensureDatabaseFile(database.path, environment);
 
 const result = spawnSync(
-  "pnpm",
-  ["exec", "prisma", "migrate", "deploy", "--config", "prisma7.config.ts"],
+  process.execPath,
+  [
+    path.join(repositoryRoot, "node_modules", "prisma", "build", "index.js"),
+    "migrate",
+    "deploy",
+    "--config",
+    "prisma7.config.ts",
+  ],
   { cwd: repositoryRoot, env: environment, stdio: "inherit" },
 );
 

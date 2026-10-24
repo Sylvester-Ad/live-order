@@ -8,7 +8,10 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const serverDirectory = path.resolve(scriptDirectory, "../..");
 const repositoryRoot = path.resolve(serverDirectory, "..");
 
-const databasePath = path.join(repositoryRoot, "data", "test.db");
+const configuredTestPath = process.env.LIVEORDER_TEST_DATABASE_PATH?.trim();
+const databasePath = configuredTestPath
+  ? path.resolve(repositoryRoot, configuredTestPath)
+  : path.join(repositoryRoot, "data", "test.db");
 
 const testEnvironment = {
   ...process.env,
