@@ -1,11 +1,13 @@
 #!/usr/bin/env node
+import "dotenv/config";
+
 import { App, Environment } from "aws-cdk-lib";
 import { LiveOrderStack } from "../lib/liveorder-stack.js";
 
 const app = new App();
 const environment: Environment = {
-  account: process.env.CDK_DEFAULT_ACCOUNT,
-  region: process.env.CDK_DEFAULT_REGION,
+  account: process.env.CDK_DEFAULT_ACCOUNT?.trim() || undefined,
+  region: process.env.CDK_DEFAULT_REGION?.trim() || undefined,
 };
 
 new LiveOrderStack(app, "LiveOrderProduction", {
@@ -16,4 +18,5 @@ new LiveOrderStack(app, "LiveOrderProduction", {
   instanceType: process.env.LIVEORDER_INSTANCE_TYPE ?? "t4g.small",
   dataVolumeGiB: Number(process.env.LIVEORDER_DATA_VOLUME_GIB ?? "30"),
   composeVersion: process.env.LIVEORDER_COMPOSE_VERSION ?? "2.39.4",
+  runtimeSecretName: process.env.LIVEORDER_RUNTIME_SECRET_NAME ?? "liveorder/production/runtime",
 });

@@ -12,6 +12,7 @@ import {
   aws_iam as iam,
   aws_logs as logs,
   aws_s3 as s3,
+  aws_secretsmanager as secretsmanager,
 } from "aws-cdk-lib";
 import { Construct } from "constructs";
 
@@ -22,6 +23,7 @@ export interface LiveOrderStackProps extends StackProps {
   readonly instanceType: string;
   readonly dataVolumeGiB: number;
   readonly composeVersion: string;
+  readonly runtimeSecretName: string;
 }
 
 export class LiveOrderStack extends Stack {
@@ -42,6 +44,9 @@ export class LiveOrderStack extends Stack {
     }
     if (!/^\d+\.\d+\.\d+$/.test(props.composeVersion)) {
       throw new Error("LIVEORDER_COMPOSE_VERSION must be a pinned semantic version.");
+    }
+    if (!/^[A-Za-z0-9/_+=.@-]{1,512}$/.test(props.runtimeSecretName)) {
+      throw new Error("LIVEORDER_RUNTIME_SECRET_NAME must be a valid Secrets Manager secret name.");
     }
 
     this.addMonthlyBudget(props.budgetEmail);
@@ -81,6 +86,12 @@ export class LiveOrderStack extends Stack {
       autoDeleteObjects: false,
     });
 
+    const runtimeSecret = new secretsmanager.CfnSecret(this, "RuntimeSecret", {
+      name: props.runtimeSecretName,
+      description: "LiveOrder Cloudinary runtime credentials; the value is added after deployment.",
+    });
+    runtimeSecret.applyRemovalPolicy(RemovalPolicy.RETAIN);
+
     const logGroup = new logs.LogGroup(this, "ContainerLogs", {
       logGroupName: "/liveorder/containers",
       retention: logs.RetentionDays.ONE_MONTH,
@@ -103,6 +114,11 @@ export class LiveOrderStack extends Stack {
       sid: "UploadLiveOrderBackups",
       actions: ["s3:PutObject"],
       resources: [backupBucket.arnForObjects("liveorder/backups/sqlite/*")],
+    }));
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      sid: "ReadRuntimeSecret",
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [runtimeSecret.ref],
     }));
 
     const recoveryRole = new iam.Role(this, "BackupRecoveryRole", {
@@ -182,7 +198,7 @@ export class LiveOrderStack extends Stack {
 
     instance.addUserData(
       "set -euo pipefail",
-      "dnf install -y docker curl xfsprogs",
+      "dnf install -y docker curl xfsprogs awscli jq",
       "mkdir -p /var/lib/docker",
       `DATA_VOLUME_ID='${dataVolume.volumeId}'`,
       "DATA_DEVICE=''",
@@ -221,6 +237,43 @@ export class LiveOrderStack extends Stack {
       "docker compose version",
       "mkdir -p /opt/liveorder",
       "chown ec2-user:ec2-user /opt/liveorder",
+      "install -d -m 0750 /etc/liveorder",
+      "cat > /etc/liveorder/runtime-config <<'LIVEORDER_RUNTIME_CONFIG'",
+      `SECRET_ARN='${runtimeSecret.ref}'`,
+      `AWS_REGION='${this.region}'`,
+      "LIVEORDER_RUNTIME_CONFIG",
+      "cat > /etc/liveorder/compose.env <<'LIVEORDER_BASE_ENV'",
+      `AWS_REGION=${this.region}`,
+      `AWS_DEFAULT_REGION=${this.region}`,
+      `LIVEORDER_BACKUP_BUCKET=${backupBucket.bucketName}`,
+      "LIVEORDER_BACKUP_PREFIX=liveorder/backups/sqlite",
+      `LIVEORDER_RUNTIME_SECRET_NAME=${props.runtimeSecretName}`,
+      "LIVEORDER_BASE_ENV",
+      "chmod 0640 /etc/liveorder/runtime-config /etc/liveorder/compose.env",
+      "cat > /usr/local/sbin/liveorder-sync-runtime-env <<'LIVEORDER_SYNC_SCRIPT'",
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "umask 077",
+      "source /etc/liveorder/runtime-config",
+      "temporary_file=$(mktemp /opt/liveorder/.env.XXXXXX)",
+      "trap 'rm -f \"$temporary_file\"' EXIT",
+      "cat /etc/liveorder/compose.env > \"$temporary_file\"",
+      "printf '\\n' >> \"$temporary_file\"",
+      `aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_ARN" --query SecretString --output text | jq -er '
+  def dotenv: (tojson | .[1:-1]) | gsub("\\\\$"; "$$");
+  if (.CLOUDINARY_CLOUD_NAME | type) == "string" and (.CLOUDINARY_CLOUD_NAME | length) > 0
+     and (.CLOUDINARY_API_KEY | type) == "string" and (.CLOUDINARY_API_KEY | length) > 0
+     and (.CLOUDINARY_API_SECRET | type) == "string" and (.CLOUDINARY_API_SECRET | length) > 0
+  then
+    "CLOUDINARY_CLOUD_NAME=\\"\\(.CLOUDINARY_CLOUD_NAME | dotenv)\\"\\nCLOUDINARY_API_KEY=\\"\\(.CLOUDINARY_API_KEY | dotenv)\\"\\nCLOUDINARY_API_SECRET=\\"\\(.CLOUDINARY_API_SECRET | dotenv)\\""
+  else error("Runtime secret must contain non-empty Cloudinary credential strings") end
+' >> "$temporary_file"`,
+      "chown ec2-user:ec2-user \"$temporary_file\"",
+      "chmod 0600 \"$temporary_file\"",
+      "mv -f \"$temporary_file\" /opt/liveorder/.env",
+      "trap - EXIT",
+      "LIVEORDER_SYNC_SCRIPT",
+      "chmod 0750 /usr/local/sbin/liveorder-sync-runtime-env",
     );
 
     const publicIp = new ec2.CfnEIP(this, "ApplicationElasticIp", { domain: "vpc" });

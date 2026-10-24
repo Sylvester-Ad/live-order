@@ -172,6 +172,9 @@ importers:
       constructs:
         specifier: 10.4.2
         version: 10.4.2
+      dotenv:
+        specifier: ^18.0.9
+        version: 18.0.9
     devDependencies:
       '@types/node':
         specifier: 24.19.1
@@ -387,6 +390,11 @@ packages:
   constructs@10.4.2:
     resolution: {integrity: sha512-wsNxBlAott2qg8Zv87q3eYZYgheb9lchtBfjHzzLHtXbttwSrHPs1NNQbBrmbb1YZvYg2+Vh0Dor76w4mFxJkA==}
 
+  dotenv@18.0.9:
+    resolution: {integrity: sha512-3fVOW4cB02R066PUSwn8O4TJyz9NckQl7F81blIbaq9jKBm2tSmOKky7ZHIXzGvkVPXCSn6jkpziBPZdGFs8Tw==}
+    engines: {node: '>=12'}
+    hasBin: true
+
   esbuild@0.28.2:
     resolution: {integrity: sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==}
     engines: {node: '>=18'}
@@ -510,6 +518,8 @@ snapshots:
   aws-cdk@2.1146.1: {}
 
   constructs@10.4.2: {}
+
+  dotenv@18.0.9: {}
 
   esbuild@0.28.2:
     optionalDependencies:

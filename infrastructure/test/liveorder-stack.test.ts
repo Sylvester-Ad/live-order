@@ -14,6 +14,7 @@ function synthTemplate(): Template {
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
     composeVersion: "2.39.4",
+    runtimeSecretName: "liveorder/test/runtime",
   });
   return Template.fromStack(stack);
 }
@@ -113,6 +114,42 @@ test("creates a private versioned S3 backup bucket with 90-day lifecycle", () =>
         ExpiredObjectDeleteMarker: true,
       })],
     },
+  });
+});
+
+test("creates a runtime secret and grants the instance role read access", () => {
+  const template = synthTemplate();
+  template.resourceCountIs("AWS::SecretsManager::Secret", 1);
+  template.hasResourceProperties("AWS::SecretsManager::Secret", {
+    Name: "liveorder/test/runtime",
+    Description: "LiveOrder Cloudinary runtime credentials; the value is added after deployment.",
+  });
+  const secret = Object.values(template.findResources("AWS::SecretsManager::Secret"))[0];
+  assert.deepEqual(secret?.Properties, {
+    Name: "liveorder/test/runtime",
+    Description: "LiveOrder Cloudinary runtime credentials; the value is added after deployment.",
+  });
+  assert.equal(secret?.DeletionPolicy, "Retain");
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "secretsmanager:GetSecretValue",
+          Resource: { Ref: "RuntimeSecret" },
+        }),
+      ]),
+    },
+  });
+  template.hasResourceProperties("AWS::EC2::Instance", {
+    UserData: Match.objectLike({
+      "Fn::Base64": Match.objectLike({
+        "Fn::Join": Match.arrayWith([
+          Match.arrayWith([
+            Match.stringLikeRegexp("liveorder-sync-runtime-env"),
+          ]),
+        ]),
+      }),
+    }),
   });
 });
 
@@ -223,6 +260,7 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     instanceType: "t4g.small",
     dataVolumeGiB: 10,
     composeVersion: "2.39.4",
+    runtimeSecretName: "liveorder/test/runtime",
   }), /at least 20 GiB/);
   assert.throws(() => new LiveOrderStack(new App(), "UnpinnedCompose", {
     env: { account: "111122223333", region: "us-east-1" },
@@ -232,5 +270,6 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
     composeVersion: "latest",
+    runtimeSecretName: "liveorder/test/runtime",
   }), /pinned semantic version/);
 });
