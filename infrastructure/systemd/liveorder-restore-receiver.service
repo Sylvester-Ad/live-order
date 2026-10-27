@@ -1,0 +1,14 @@
+[Unit]
+Description=Temporary LiveOrder restore upload receiver for an SSM tunnel
+After=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/sbin/liveorder-restore-receiver
+Restart=no
+UMask=0077
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/docker/liveorder-restore-inbox

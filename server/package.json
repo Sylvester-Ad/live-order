@@ -17,6 +17,7 @@
     "backup:restore": "tsx src/scripts/restore-sqlite-backup.ts",
     "backup:create:production": "node dist/server/src/scripts/backup-sqlite.js",
     "backup:upload:production": "node dist/server/src/scripts/upload-sqlite-backup.js",
+    "backup:finalize:production": "node dist/server/src/scripts/finalize-sqlite-backup-upload.js",
     "backup:restore:production": "node dist/server/src/scripts/restore-sqlite-backup.js",
     "test:prepare": "tsx src/scripts/prepare-test-db.ts",
     "test": "pnpm run test:prepare && vitest run",

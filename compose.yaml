@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: liveorder-caddy:local
+    image: "${LIVEORDER_CADDY_IMAGE:-liveorder-caddy:local}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -10,6 +10,8 @@ services:
     ports:
       - "${HTTP_PORT:-8080}:80"
       - "${HTTPS_PORT:-8443}:443"
+    labels:
+      com.liveorder.release: "${LIVEORDER_RELEASE_VERSION:-local}"
     volumes:
       - caddy-data:/data
       - caddy-config:/config
@@ -19,7 +21,7 @@ services:
     restart: unless-stopped
 
   backend:
-    image: liveorder-backend:local
+    image: "${LIVEORDER_BACKEND_IMAGE:-liveorder-backend:local}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,6 +40,8 @@ services:
       LIVEORDER_BACKUP_PREFIX: "${LIVEORDER_BACKUP_PREFIX:-liveorder/backups/sqlite}"
     volumes:
       - liveorder-data:/var/lib/liveorder
+    labels:
+      com.liveorder.release: "${LIVEORDER_RELEASE_VERSION:-local}"
     restart: unless-stopped
 
 volumes:

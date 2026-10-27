@@ -38,7 +38,12 @@ describe("S3 SQLite backup upload", () => {
       LIVEORDER_BACKUP_BUCKET: "private-backups",
       AWS_REGION: "af-south-1",
       LIVEORDER_BACKUP_PREFIX: "../other",
-    })).toThrow(/relative S3 key prefix/);
+    })).toThrow(/must use the liveorder\/backups\/sqlite S3 prefix/);
+    expect(() => getS3BackupConfiguration({
+      LIVEORDER_BACKUP_BUCKET: "private-backups",
+      AWS_REGION: "af-south-1",
+      LIVEORDER_BACKUP_PREFIX: "liveorder/backups/other",
+    })).toThrow(/must use the liveorder\/backups\/sqlite S3 prefix/);
   });
 
   it("generates a unique timestamped key under the configured prefix", () => {
@@ -48,6 +53,8 @@ describe("S3 SQLite backup upload", () => {
 
     expect(first).toBe("liveorder/backups/sqlite/liveorder-20261024T140506Z-first-id.sqlite");
     expect(second).not.toBe(first);
+    expect(() => createBackupObjectKey("liveorder/backups/elsewhere", date)).toThrow(/must use the liveorder\/backups\/sqlite S3 prefix/);
+    expect(() => createBackupObjectKey("liveorder/backups/sqlite", date, "../outside")).toThrow(/identifiers may contain only/);
   });
 
   it("uploads only validated backups with server-side encryption and no public ACL", async () => {
@@ -93,6 +100,28 @@ describe("S3 SQLite backup upload", () => {
       prefix: "liveorder/backups/sqlite",
       region: "af-south-1",
     }, send)).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("rejects a symlinked backup before issuing an S3 request", async () => {
+    const symlinkPath = path.join(directory, "linked.sqlite");
+    await fs.symlink(backupPath, symlinkPath);
+    const send = vi.fn(async (_command: PutObjectCommand) => undefined);
+    await expect(uploadSqliteBackup(symlinkPath, {
+      bucket: "private-backups",
+      prefix: "liveorder/backups/sqlite",
+      region: "af-south-1",
+    }, send)).rejects.toThrow(/regular file/);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-approved prefix before issuing an S3 request", async () => {
+    const send = vi.fn(async (_command: PutObjectCommand) => undefined);
+    await expect(uploadSqliteBackup(backupPath, {
+      bucket: "private-backups",
+      prefix: "liveorder/backups/other",
+      region: "af-south-1",
+    }, send)).rejects.toThrow(/must use the liveorder\/backups\/sqlite S3 prefix/);
     expect(send).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { verifySqliteDatabase } from "./sqlite-backups.js";
 
-const defaultPrefix = "liveorder/backups/sqlite";
+export const SQLITE_BACKUP_S3_PREFIX = "liveorder/backups/sqlite";
+
+function validateBackupPrefix(prefix: string) {
+  if (prefix !== SQLITE_BACKUP_S3_PREFIX) {
+    throw new Error(`SQLite backups must use the ${SQLITE_BACKUP_S3_PREFIX} S3 prefix`);
+  }
+}
 
 export type S3BackupConfiguration = {
   bucket: string;
@@ -16,10 +22,8 @@ export function getS3BackupConfiguration(environment: NodeJS.ProcessEnv = proces
   const bucket = environment.LIVEORDER_BACKUP_BUCKET?.trim();
   if (!bucket) throw new Error("LIVEORDER_BACKUP_BUCKET must be configured");
 
-  const prefix = (environment.LIVEORDER_BACKUP_PREFIX?.trim() || defaultPrefix).replace(/\/+$/, "");
-  if (prefix.startsWith("/") || prefix.split("/").some((part) => part === "" || part === "." || part === "..")) {
-    throw new Error("LIVEORDER_BACKUP_PREFIX must be a relative S3 key prefix");
-  }
+  const prefix = (environment.LIVEORDER_BACKUP_PREFIX?.trim() || SQLITE_BACKUP_S3_PREFIX).replace(/\/+$/, "");
+  validateBackupPrefix(prefix);
 
   const region = environment.AWS_REGION?.trim() || environment.AWS_DEFAULT_REGION?.trim();
   if (!region) throw new Error("AWS_REGION must be configured");
@@ -32,6 +36,10 @@ export function createBackupObjectKey(
   now = new Date(),
   uniqueId = randomUUID(),
 ) {
+  validateBackupPrefix(prefix);
+  if (!/^[A-Za-z0-9-]+$/.test(uniqueId)) {
+    throw new Error("Backup object identifiers may contain only letters, numbers, and hyphens");
+  }
   const timestamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   return `${prefix}/liveorder-${timestamp}-${uniqueId}.sqlite`;
 }
@@ -41,8 +49,9 @@ export async function uploadSqliteBackup(
   configuration: S3BackupConfiguration,
   send: (command: PutObjectCommand) => Promise<unknown>,
 ) {
+  validateBackupPrefix(configuration.prefix);
   verifySqliteDatabase(backupPath);
-  const backupStats = await stat(backupPath);
+  const backupStats = await lstat(backupPath);
   if (!backupStats.isFile()) throw new Error("Backup path must be a regular file");
 
   const key = createBackupObjectKey(configuration.prefix);

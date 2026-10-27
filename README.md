@@ -71,13 +71,13 @@ Production HTTP logs include method, status, and duration without request bodies
 
 Keep `CLOUDINARY_API_SECRET`, session configuration, and all other credentials server-side. `CLOUDINARY_CLOUD_NAME` and `CLOUDINARY_API_KEY` are also configured only on the backend in this MVP. Do not place credentials in `VITE_` variables, source control, container build arguments, or image layers.
 
-Deployment infrastructure and scheduled backup automation are not configured here. The one-off SQLite backup and restore commands are documented below; operators still need to schedule them and configure S3 lifecycle retention before launch.
+The AWS CDK deployment, GitHub Actions release pipeline, runtime Secrets Manager secret, scheduled systemd backups, and operations runbook are documented in [infrastructure/README.md](./infrastructure/README.md). The AWS stack has not been deployed from this repository session. The deployed workflow must remain protected by the GitHub `production` Environment.
 
 ## Containerized production-like run
 
 The Docker build uses the official `node:24.22.1-alpine3.24` image for all Node stages and `caddy:2.11.7-alpine` for the web image. Node 24 is the active LTS release line. Caddy 2.11.7 is an explicitly pinned Caddy 2 Alpine release, retaining Caddy's automatic HTTPS support. Build and production dependency stages install pnpm 12.8.1 and use the independent root, server, and client lockfiles with frozen installs. The `better-sqlite3` binding is installed or compiled inside Alpine with the matching Node ABI; Python, make, and the C++ compiler stay in build stages. The backend runtime retains `libstdc++` for the native binding but does not include pnpm; its compiled migration wrapper invokes the locally installed Prisma CLI directly with Node.
 
-There are exactly two Compose services: `caddy` serves the built Vite application and proxies `/api` requests to `backend:3000` without stripping the prefix; it also proxies the existing `/api-docs` routes. `backend` runs the compiled Express server. Caddy applies an SPA fallback for React Router routes. Both image health checks use `GET /api/health/ready`, and Caddy waits for the backend health check before starting. The backend has no published host port. The Vite production build uses the same-origin `/api` path and does not receive server credentials. Compose passes only the Cloudinary and optional CORS application settings from `.env` to the backend; host-port and Caddy settings are not injected into it.
+There are exactly two Compose services: `caddy` serves the built Vite application and proxies `/api` requests to `backend:3000` without stripping the prefix; it also proxies the existing `/api-docs` routes. `backend` runs the compiled Express server. Caddy applies an SPA fallback for React Router routes. Backend readiness uses `GET /api/health/ready` and Caddy liveness checks the local admin endpoint, so Caddy health does not depend on database readiness. Caddy waits for backend readiness before starting. The backend has no published host port. The Vite production build uses the same-origin `/api` path and does not receive server credentials. Compose passes Cloudinary and optional CORS settings only to the backend.
 
 To build and start a local HTTP instance:
 
@@ -94,21 +94,23 @@ Provision the creator from a private terminal. The command prints a one-time acc
 
 SQLite resides at `/var/lib/liveorder/liveorder.db` inside the backend and is stored in the Compose-managed `liveorder-data` volume. Compose creates this volume during the first migration run. `docker compose down` preserves it; do not use `docker compose down --volumes` in production. Replacing or rebuilding the backend container retains this volume. Caddy's `/data` and `/config` are also persistent so certificate state can survive restarts.
 
-For local HTTP, the defaults are `SITE_ADDRESS=:80`, host port 8080, and host port 8443. Public HTTPS requires a valid hostname in `SITE_ADDRESS`, DNS pointing to the server, and inbound network access to ports 80 and 443. Set `HTTP_PORT=80` and `HTTPS_PORT=443` for that deployment. Caddy can then manage certificates automatically; the local HTTP setup alone does not provide public HTTPS.
+For local HTTP, defaults are `SITE_ADDRESS=:80`, host port 8080, and host port 8443. The EC2 deployment sets host ports 80 and 443. Public HTTPS requires a valid hostname in `SITE_ADDRESS`, DNS pointing to the Elastic IP, and inbound network access to ports 80 and 443; Caddy can then manage certificates automatically. A bare `:80` address is HTTP-only.
 
-On each application update, build the new images, run `docker compose run --rm backend node dist/server/src/scripts/migrate-deploy.js` against the persistent volume, then recreate the services with `docker compose up -d`. These commands run in `/app/server`, matching the image's working directory. Migrations are never run automatically by the server entrypoint. This milestone does not automate off-host database backups; arrange and rehearse backups before production launch.
+For local/manual updates, build the new images, run `docker compose run --rm backend node dist/server/src/scripts/migrate-deploy.js` against the persistent volume, then recreate the services with `docker compose up -d`. These commands run in `/app/server`, matching the image's working directory. Migrations are never run automatically by the server entrypoint. The AWS production workflow performs a verified S3 backup before migrations and waits for container health; see [infrastructure/README.md](./infrastructure/README.md) for deployment and recovery operations.
 
 ## SQLite backup and restore
 
 The backend backup command uses `better-sqlite3`'s SQLite online backup API. It reads a consistent snapshot while the application is running, then verifies `PRAGMA integrity_check`, required LiveOrder schema columns, and foreign-key consistency before reporting success. It refuses to overwrite an existing backup and uses owner-only file permissions. The default source is the same `LIVEORDER_DATABASE_PATH` used by Express and Prisma; `--source` can override it for an explicit alternate database. Backup files must be placed directly under the dedicated `backups/` directory beside the configured database, with a `liveorder-<UTC timestamp>.sqlite` filename.
 
+In AWS production, do not run `--upload` inside the container: EC2 credentials are deliberately not exposed to the backend container. The host's scheduled systemd service creates the verified snapshot, uploads it with the instance role, then marks it uploaded. See [scheduled backups and restore](./infrastructure/README.md#scheduled-backups-monitoring-and-restore) for timer, retry, alerts, S3 access, and SSM-only recovery instructions.
+
 Set these non-secret runtime settings for S3 uploads:
 
 * `AWS_REGION` (or `AWS_DEFAULT_REGION`).
 * `LIVEORDER_BACKUP_BUCKET`.
-* `LIVEORDER_BACKUP_PREFIX` (optional; defaults to `liveorder/backups/sqlite`).
+* `LIVEORDER_BACKUP_PREFIX` (optional; the only allowed value is `liveorder/backups/sqlite`, matching the bucket lifecycle and IAM policy).
 
-The AWS SDK uses its normal credential provider chain. On EC2, use an instance role; do not put access keys in `.env`, Compose, or the image. Grant the application role only `s3:PutObject` on `arn:aws:s3:::<bucket>/<prefix>/*`. The bucket should block public access and use S3 server-side encryption. The uploader requests AWS-managed SSE-S3 (`AES256`) and does not set an ACL.
+The AWS SDK uses its normal credential provider chain. For local operations use an approved AWS profile; in production the host backup job uses the EC2 instance role. Do not put access keys in `.env`, Compose, or the image. The production instance has only `s3:PutObject` on `arn:aws:s3:::<bucket>/liveorder/backups/sqlite/*`; recovery read access is a separate role. The bucket blocks public access and uses S3 server-side encryption. The uploader requests AWS-managed SSE-S3 (`AES256`) and does not set an ACL.
 
 Create a local backup while Compose is running, optionally uploading the verified file in the same operation:
 
@@ -173,4 +175,4 @@ docker compose up -d
 
 Then check readiness and representative seller/customer workflows. Keep the pre-restore database and the S3 backup until the recovered data has been reviewed. Use the application release compatible with the backup schema; restore itself does not run migrations.
 
-The named Docker volume and S3 objects are independent failure domains. A local backup in the volume is not an off-host backup. Schedule uploads, alert on failures, and rehearse recovery before production launch; this milestone does not provision the bucket, lifecycle policy, or scheduler.
+The named Docker volume and S3 objects are independent failure domains. AWS production provisions the private bucket, lifecycle policy, daily uploader, and failure alarm; local Compose does not. Rehearse recovery using the SSM-only transfer procedure in [infrastructure/README.md](./infrastructure/README.md#scheduled-backups-monitoring-and-restore) before relying on the backups.

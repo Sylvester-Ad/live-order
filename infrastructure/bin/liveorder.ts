@@ -15,8 +15,10 @@ new LiveOrderStack(app, "LiveOrderProduction", {
   budgetEmail: process.env.LIVEORDER_BUDGET_EMAIL,
   githubRepository: process.env.LIVEORDER_GITHUB_REPOSITORY ?? "Sylvester-Ad/live-order",
   githubEnvironment: process.env.LIVEORDER_GITHUB_ENVIRONMENT ?? "production",
+  githubOidcProviderArn: process.env.LIVEORDER_GITHUB_OIDC_PROVIDER_ARN,
   instanceType: process.env.LIVEORDER_INSTANCE_TYPE ?? "t4g.small",
   dataVolumeGiB: Number(process.env.LIVEORDER_DATA_VOLUME_GIB ?? "30"),
   composeVersion: process.env.LIVEORDER_COMPOSE_VERSION ?? "2.39.4",
   runtimeSecretName: process.env.LIVEORDER_RUNTIME_SECRET_NAME ?? "liveorder/production/runtime",
+  siteAddress: process.env.LIVEORDER_SITE_ADDRESS ?? ":80",
 });

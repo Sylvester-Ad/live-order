@@ -75,7 +75,7 @@ VOLUME ["/var/lib/liveorder"]
 USER node
 
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # Direct Node execution ensures Docker forwards SIGTERM to the graceful server.
@@ -87,4 +87,4 @@ COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=client-build /app/client/dist /srv
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1/api/health/ready || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1

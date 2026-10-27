@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   ArnFormat,
   CfnOutput,
@@ -8,22 +10,38 @@ import {
   StackProps,
   Tags,
   aws_budgets as budgets,
+  aws_cloudwatch as cloudwatch,
+  aws_cloudwatch_actions as cloudwatch_actions,
   aws_ec2 as ec2,
+  aws_ecr as ecr,
   aws_iam as iam,
   aws_logs as logs,
   aws_s3 as s3,
   aws_secretsmanager as secretsmanager,
+  aws_sns as sns,
 } from "aws-cdk-lib";
 import { Construct } from "constructs";
+
+const backupScript = readFileSync(new URL("../scripts/liveorder-backup.sh", import.meta.url), "utf8").trimEnd();
+const deploymentScript = readFileSync(new URL("../scripts/liveorder-deploy.sh", import.meta.url), "utf8").trimEnd();
+const backupService = readFileSync(new URL("../systemd/liveorder-backup.service", import.meta.url), "utf8").trimEnd();
+const backupTimer = readFileSync(new URL("../systemd/liveorder-backup.timer", import.meta.url), "utf8").trimEnd();
+const restoreReceiver = readFileSync(new URL("../scripts/liveorder-restore-receiver.py", import.meta.url), "utf8").trimEnd();
+const restoreReceiverService = readFileSync(
+  new URL("../systemd/liveorder-restore-receiver.service", import.meta.url),
+  "utf8",
+).trimEnd();
 
 export interface LiveOrderStackProps extends StackProps {
   readonly budgetEmail?: string;
   readonly githubRepository: string;
   readonly githubEnvironment: string;
+  readonly githubOidcProviderArn?: string;
   readonly instanceType: string;
   readonly dataVolumeGiB: number;
   readonly composeVersion: string;
   readonly runtimeSecretName: string;
+  readonly siteAddress?: string;
 }
 
 export class LiveOrderStack extends Stack {
@@ -48,6 +66,21 @@ export class LiveOrderStack extends Stack {
     if (!/^[A-Za-z0-9/_+=.@-]{1,512}$/.test(props.runtimeSecretName)) {
       throw new Error("LIVEORDER_RUNTIME_SECRET_NAME must be a valid Secrets Manager secret name.");
     }
+    const instanceType = new ec2.InstanceType(props.instanceType);
+    if (instanceType.architecture !== ec2.InstanceArchitecture.ARM_64) {
+      throw new Error("LIVEORDER_INSTANCE_TYPE must use ARM64 architecture.");
+    }
+    if (
+      props.siteAddress !== undefined
+      && props.siteAddress !== ":80"
+      && !/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?::\d{1,5})?$/.test(props.siteAddress)
+    ) {
+      throw new Error("LIVEORDER_SITE_ADDRESS must be :80 or a valid hostname with an optional port.");
+    }
+    const sitePort = props.siteAddress?.match(/:(\d+)$/)?.[1];
+    if (sitePort && (Number(sitePort) < 1 || Number(sitePort) > 65535)) {
+      throw new Error("LIVEORDER_SITE_ADDRESS port must be between 1 and 65535.");
+    }
 
     this.addMonthlyBudget(props.budgetEmail);
 
@@ -67,6 +100,7 @@ export class LiveOrderStack extends Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
       versioned: true,
       lifecycleRules: [
         {
@@ -85,6 +119,9 @@ export class LiveOrderStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
       autoDeleteObjects: false,
     });
+
+    const backendRepository = this.createImageRepository("BackendImageRepository", "liveorder/backend");
+    const caddyRepository = this.createImageRepository("CaddyImageRepository", "liveorder/caddy");
 
     const runtimeSecret = new secretsmanager.CfnSecret(this, "RuntimeSecret", {
       name: props.runtimeSecretName,
@@ -119,6 +156,22 @@ export class LiveOrderStack extends Stack {
       sid: "ReadRuntimeSecret",
       actions: ["secretsmanager:GetSecretValue"],
       resources: [runtimeSecret.ref],
+    }));
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      sid: "PullLiveOrderImages",
+      actions: ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+      resources: [backendRepository.repositoryArn, caddyRepository.repositoryArn],
+    }));
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      sid: "AuthenticateToEcr",
+      actions: ["ecr:GetAuthorizationToken"],
+      resources: ["*"],
+    }));
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      sid: "PublishBackupHealthMetric",
+      actions: ["cloudwatch:PutMetricData"],
+      resources: ["*"],
+      conditions: { StringEquals: { "cloudwatch:namespace": "LiveOrder/Backups" } },
     }));
 
     const recoveryRole = new iam.Role(this, "BackupRecoveryRole", {
@@ -155,7 +208,7 @@ export class LiveOrderStack extends Stack {
       vpc,
       vpcSubnets: { subnets: [vpc.publicSubnets[0]] },
       availabilityZone: vpc.publicSubnets[0].availabilityZone,
-      instanceType: new ec2.InstanceType(props.instanceType),
+      instanceType,
       machineImage: ec2.MachineImage.latestAmazonLinux2023({
         cpuType: ec2.AmazonLinuxCpuType.ARM_64,
       }),
@@ -198,7 +251,7 @@ export class LiveOrderStack extends Stack {
 
     instance.addUserData(
       "set -euo pipefail",
-      "dnf install -y docker curl xfsprogs awscli jq",
+      "dnf install -y docker curl xfsprogs awscli jq util-linux python3",
       "mkdir -p /var/lib/docker",
       `DATA_VOLUME_ID='${dataVolume.volumeId}'`,
       "DATA_DEVICE=''",
@@ -237,6 +290,7 @@ export class LiveOrderStack extends Stack {
       "docker compose version",
       "mkdir -p /opt/liveorder",
       "chown ec2-user:ec2-user /opt/liveorder",
+      "install -d -m 0700 /var/lib/docker/liveorder-restore-inbox",
       "install -d -m 0750 /etc/liveorder",
       "cat > /etc/liveorder/runtime-config <<'LIVEORDER_RUNTIME_CONFIG'",
       `SECRET_ARN='${runtimeSecret.ref}'`,
@@ -247,6 +301,11 @@ export class LiveOrderStack extends Stack {
       `AWS_DEFAULT_REGION=${this.region}`,
       `LIVEORDER_BACKUP_BUCKET=${backupBucket.bucketName}`,
       "LIVEORDER_BACKUP_PREFIX=liveorder/backups/sqlite",
+      `LIVEORDER_BACKEND_REPOSITORY=${backendRepository.repositoryUri}`,
+      `LIVEORDER_CADDY_REPOSITORY=${caddyRepository.repositoryUri}`,
+      `SITE_ADDRESS=${props.siteAddress ?? ":80"}`,
+      "HTTP_PORT=80",
+      "HTTPS_PORT=443",
       `LIVEORDER_RUNTIME_SECRET_NAME=${props.runtimeSecretName}`,
       "LIVEORDER_BASE_ENV",
       "chmod 0640 /etc/liveorder/runtime-config /etc/liveorder/compose.env",
@@ -274,7 +333,67 @@ export class LiveOrderStack extends Stack {
       "trap - EXIT",
       "LIVEORDER_SYNC_SCRIPT",
       "chmod 0750 /usr/local/sbin/liveorder-sync-runtime-env",
+      "cat > /usr/local/sbin/liveorder-backup <<'LIVEORDER_BACKUP_SCRIPT'",
+      backupScript,
+      "LIVEORDER_BACKUP_SCRIPT",
+      "chmod 0750 /usr/local/sbin/liveorder-backup",
+      "cat > /usr/local/sbin/liveorder-deploy <<'LIVEORDER_DEPLOY_SCRIPT'",
+      deploymentScript,
+      "LIVEORDER_DEPLOY_SCRIPT",
+      "chmod 0750 /usr/local/sbin/liveorder-deploy",
+      "cat > /etc/systemd/system/liveorder-backup.service <<'LIVEORDER_BACKUP_SERVICE'",
+      backupService,
+      "LIVEORDER_BACKUP_SERVICE",
+      "cat > /etc/systemd/system/liveorder-backup.timer <<'LIVEORDER_BACKUP_TIMER'",
+      backupTimer,
+      "LIVEORDER_BACKUP_TIMER",
+      "systemctl daemon-reload",
+      "systemctl enable --now liveorder-backup.timer",
+      "cat > /usr/local/sbin/liveorder-restore-receiver <<'LIVEORDER_RESTORE_RECEIVER'",
+      restoreReceiver,
+      "LIVEORDER_RESTORE_RECEIVER",
+      "chmod 0750 /usr/local/sbin/liveorder-restore-receiver",
+      "cat > /etc/systemd/system/liveorder-restore-receiver.service <<'LIVEORDER_RESTORE_SERVICE'",
+      restoreReceiverService,
+      "LIVEORDER_RESTORE_SERVICE",
+      "systemctl daemon-reload",
     );
+
+    const backupNotificationTopic = new sns.Topic(this, "BackupFailureTopic", {
+      topicName: "LiveOrderBackupFailures",
+      displayName: "LiveOrder backup failures",
+    });
+    new sns.Subscription(this, "BackupFailureEmail", {
+      topic: backupNotificationTopic,
+      protocol: sns.SubscriptionProtocol.EMAIL,
+      endpoint: props.budgetEmail,
+    });
+    const backupFailureAlarm = new cloudwatch.Alarm(this, "BackupFailureAlarm", {
+      alarmName: "LiveOrder-BackupFailure",
+      alarmDescription: "A scheduled LiveOrder SQLite backup failed.",
+      metric: new cloudwatch.Metric({
+        namespace: "LiveOrder/Backups",
+        metricName: "BackupFailure",
+        statistic: "Maximum",
+        period: Duration.days(1),
+      }),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    backupFailureAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(backupNotificationTopic));
+    backupNotificationTopic.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowLiveOrderBackupAlarmToPublish",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [backupNotificationTopic.topicArn],
+      conditions: {
+        ArnEquals: { "aws:SourceArn": backupFailureAlarm.alarmArn },
+        StringEquals: { "aws:SourceAccount": this.account },
+      },
+    }));
 
     const publicIp = new ec2.CfnEIP(this, "ApplicationElasticIp", { domain: "vpc" });
     new ec2.CfnEIPAssociation(this, "ApplicationElasticIpAssociation", {
@@ -282,13 +401,34 @@ export class LiveOrderStack extends Stack {
       instanceId: instance.instanceId,
     });
 
-    this.addGithubDeploymentRole(instance, props.githubRepository, props.githubEnvironment);
+    const deploymentRole = this.addGithubDeploymentRole(
+      instance,
+      props.githubRepository,
+      props.githubEnvironment,
+      props.githubOidcProviderArn,
+      backendRepository,
+      caddyRepository,
+    );
 
     new CfnOutput(this, "ApplicationPublicIp", { value: publicIp.attrPublicIp });
     new CfnOutput(this, "ApplicationInstanceId", { value: instance.instanceId });
+    new CfnOutput(this, "BackendImageRepositoryUri", { value: backendRepository.repositoryUri });
+    new CfnOutput(this, "CaddyImageRepositoryUri", { value: caddyRepository.repositoryUri });
     new CfnOutput(this, "BackupBucketName", { value: backupBucket.bucketName });
     new CfnOutput(this, "BackupRecoveryRoleArn", { value: recoveryRole.roleArn });
     new CfnOutput(this, "ContainerLogGroupName", { value: logGroup.logGroupName });
+    new CfnOutput(this, "GitHubDeploymentRoleArn", { value: deploymentRole.roleArn });
+  }
+
+  private createImageRepository(id: string, repositoryName: string): ecr.Repository {
+    const repository = new ecr.Repository(this, id, {
+      repositoryName,
+      imageTagMutability: ecr.TagMutability.IMMUTABLE,
+      imageScanOnPush: true,
+      lifecycleRules: [{ maxImageCount: 10, description: "Retain the ten most recent releases." }],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    return repository;
   }
 
   private addMonthlyBudget(email: string): void {
@@ -320,17 +460,29 @@ export class LiveOrderStack extends Stack {
     instance: ec2.Instance,
     repository: string,
     environmentName: string,
-  ): void {
-    const provider = new iam.CfnOIDCProvider(this, "GitHubOidcProvider", {
-      url: "https://token.actions.githubusercontent.com",
-      clientIdList: ["sts.amazonaws.com"],
-    });
+    existingProviderArn: string | undefined,
+    backendRepository: ecr.Repository,
+    caddyRepository: ecr.Repository,
+  ): iam.Role {
+    let providerArn: string;
+    if (existingProviderArn?.trim()) {
+      if (!/^arn:[A-Za-z0-9-]+:iam::\d{12}:oidc-provider\/token\.actions\.githubusercontent\.com$/.test(existingProviderArn)) {
+        throw new Error("LIVEORDER_GITHUB_OIDC_PROVIDER_ARN must identify GitHub's OIDC provider in this AWS partition.");
+      }
+      providerArn = existingProviderArn.trim();
+    } else {
+      const provider = new iam.CfnOIDCProvider(this, "GitHubOidcProvider", {
+        url: "https://token.actions.githubusercontent.com",
+        clientIdList: ["sts.amazonaws.com"],
+      });
+      providerArn = provider.ref;
+    }
     const subject = `repo:${repository}:environment:${environmentName}`;
     const role = new iam.Role(this, "GitHubDeploymentRole", {
       roleName: "LiveOrderGitHubDeployment",
       description: "GitHub Actions may invoke a deployment command on the one LiveOrder instance.",
       assumedBy: new iam.FederatedPrincipal(
-        provider.ref,
+        providerArn,
         {
           StringEquals: {
             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
@@ -365,5 +517,23 @@ export class LiveOrderStack extends Stack {
       actions: ["ssm:GetCommandInvocation"],
       resources: ["*"],
     }));
+    role.addToPolicy(new iam.PolicyStatement({
+      sid: "PushLiveOrderImages",
+      actions: [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:CompleteLayerUpload",
+        "ecr:DescribeImages",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart",
+      ],
+      resources: [backendRepository.repositoryArn, caddyRepository.repositoryArn],
+    }));
+    role.addToPolicy(new iam.PolicyStatement({
+      sid: "AuthenticateToEcr",
+      actions: ["ecr:GetAuthorizationToken"],
+      resources: ["*"],
+    }));
+    return role;
   }
 }

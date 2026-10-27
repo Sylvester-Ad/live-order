@@ -1,0 +1,163 @@
+name: LiveOrder CI and production deployment
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate application and infrastructure
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir server install --frozen-lockfile
+          pnpm --dir client install --frozen-lockfile
+          pnpm --dir infrastructure install --frozen-lockfile
+      - name: Generate Prisma client and validate schema
+        run: |
+          pnpm db:generate
+          LIVEORDER_DATABASE_PATH=/tmp/liveorder-prisma-validation.sqlite NODE_ENV=production \
+            pnpm exec prisma validate --config prisma7.config.ts
+      - name: Apply migrations to an isolated SQLite database
+        run: |
+          NODE_ENV=test LIVEORDER_DATABASE_PATH=/tmp/liveorder-ci-migrations.sqlite \
+            pnpm db:migrate:deploy
+      - name: Type-check and lint
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm --dir infrastructure typecheck
+      - name: Run backend tests with an isolated database
+        env:
+          LIVEORDER_TEST_DATABASE_PATH: /tmp/liveorder-ci-tests.sqlite
+        run: pnpm --dir server test
+      - name: Run frontend and CDK tests
+        run: |
+          pnpm --dir client test
+          pnpm --dir infrastructure test
+          python3 infrastructure/test/restore-receiver.test.py
+      - name: Build production application
+        run: pnpm build
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Prepare ARM64 Docker builder
+        uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and inspect ARM64 application images
+        run: |
+          docker buildx build --platform linux/arm64 --target backend --load --tag liveorder-backend:validation .
+          docker buildx build --platform linux/arm64 --target caddy --load --tag liveorder-caddy:validation .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' liveorder-backend:validation)" = linux/arm64
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' liveorder-caddy:validation)" = linux/arm64
+      - name: Synthesize CDK without AWS credentials
+        env:
+          CDK_DEFAULT_ACCOUNT: ""
+          CDK_DEFAULT_REGION: ""
+          LIVEORDER_BUDGET_EMAIL: budget-test@example.invalid
+        run: pnpm --dir infrastructure synth
+
+  deploy:
+    name: Publish ARM64 images and deploy through SSM
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    concurrency:
+      group: liveorder-production-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      LIVEORDER_INSTANCE_ID: ${{ vars.LIVEORDER_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment configuration
+        run: |
+          test -n "$AWS_REGION" || { echo "Set the AWS_REGION repository variable."; exit 1; }
+          test -n "$LIVEORDER_INSTANCE_ID" || { echo "Set LIVEORDER_INSTANCE_ID from the CDK output."; exit 1; }
+          [[ "$LIVEORDER_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]] || { echo "LIVEORDER_INSTANCE_ID is not a valid EC2 instance ID."; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: liveorder-${{ github.run_id }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate to Amazon ECR
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account_id.dkr.ecr.$AWS_REGION.amazonaws.com"
+          aws ecr get-login-password --region "$AWS_REGION" |
+            docker login --username AWS --password-stdin "$registry"
+          echo "ECR_REGISTRY=$registry" >> "$GITHUB_ENV"
+      - name: Build and publish immutable ARM64 release images
+        run: |
+          if ! aws ecr describe-images --repository-name liveorder/backend \
+            --image-ids "imageTag=$GITHUB_SHA" >/dev/null 2>&1; then
+            docker buildx build --platform linux/arm64 --provenance=false --target backend \
+              --tag "$ECR_REGISTRY/liveorder/backend:$GITHUB_SHA" --push .
+          fi
+          if ! aws ecr describe-images --repository-name liveorder/caddy \
+            --image-ids "imageTag=$GITHUB_SHA" >/dev/null 2>&1; then
+            docker buildx build --platform linux/arm64 --provenance=false --target caddy \
+              --tag "$ECR_REGISTRY/liveorder/caddy:$GITHUB_SHA" --push .
+          fi
+      - name: Deploy release using AWS Systems Manager
+        run: |
+          compose_payload=$(base64 -w0 compose.yaml)
+          command="install -d -m 0755 /opt/liveorder && printf '%s' '$compose_payload' | base64 -d > /opt/liveorder/compose.yaml && chown ec2-user:ec2-user /opt/liveorder/compose.yaml && chmod 0644 /opt/liveorder/compose.yaml && /usr/local/sbin/liveorder-deploy '$GITHUB_SHA'"
+          parameters=$(jq -cn --arg command "$command" '{commands: [$command]}')
+          command_id=$(aws ssm send-command \
+            --document-name AWS-RunShellScript \
+            --instance-ids "$LIVEORDER_INSTANCE_ID" \
+            --comment "LiveOrder release $GITHUB_SHA" \
+            --timeout-seconds 1800 \
+            --parameters "$parameters" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          for attempt in $(seq 1 180); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$LIVEORDER_INSTANCE_ID" \
+              --query Status \
+              --output text 2>/dev/null || true)
+            case "$status" in
+              Success)
+                echo "LiveOrder release $GITHUB_SHA completed successfully."
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
+                details=$(aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "$LIVEORDER_INSTANCE_ID" \
+                  --query StatusDetails \
+                  --output text 2>/dev/null || printf 'No additional status details')
+                echo "LiveOrder deployment failed: $status ($details)." >&2
+                echo "Inspect this command in Systems Manager Run Command for host-side diagnostics." >&2
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out waiting for the LiveOrder SSM deployment command." >&2
+          exit 1
