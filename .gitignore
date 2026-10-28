@@ -11,3 +11,6 @@ data/*.db
 dist/
 data/creator-codes.json
 .pnpm-store
+
+__pycache__/
+*.pyc
