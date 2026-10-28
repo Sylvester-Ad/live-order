@@ -10,6 +10,8 @@ function synthTemplate(githubOidcProviderArn?: string): Template {
     env: { account: "111122223333", region: "us-east-1" },
     budgetEmail: "budget-test@example.invalid",
     githubRepository: "Sylvester-Ad/live-order",
+    githubOwnerId: "123608416",
+    githubRepositoryId: "1403043851",
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
@@ -246,7 +248,8 @@ test("restricts GitHub OIDC to the configured repository and environment", () =>
           Condition: {
             StringEquals: {
               "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-              "token.actions.githubusercontent.com:sub": "repo:Sylvester-Ad/live-order:environment:production",
+              "token.actions.githubusercontent.com:sub":
+                "repo:Sylvester-Ad@123608416/live-order@1403043851:environment:production",
             },
           },
         }),
@@ -379,6 +382,8 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     env: { account: "111122223333", region: "us-east-1" },
     budgetEmail: "budget-test@example.invalid",
     githubRepository: "Sylvester-Ad/live-order",
+    githubOwnerId: "123608416",
+    githubRepositoryId: "1403043851",
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 10,
@@ -389,6 +394,8 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     env: { account: "111122223333", region: "us-east-1" },
     budgetEmail: "budget-test@example.invalid",
     githubRepository: "Sylvester-Ad/live-order",
+    githubOwnerId: "123608416",
+    githubRepositoryId: "1403043851",
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
@@ -399,6 +406,8 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     env: { account: "111122223333", region: "us-east-1" },
     budgetEmail: "budget-test@example.invalid",
     githubRepository: "Sylvester-Ad/live-order",
+    githubOwnerId: "123608416",
+    githubRepositoryId: "1403043851",
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
@@ -410,10 +419,35 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     env: { account: "111122223333", region: "us-east-1" },
     budgetEmail: "budget-test@example.invalid",
     githubRepository: "Sylvester-Ad/live-order",
+    githubOwnerId: "123608416",
+    githubRepositoryId: "1403043851",
     githubEnvironment: "production",
     instanceType: "t3.small",
     dataVolumeGiB: 30,
     composeVersion: "2.39.4",
     runtimeSecretName: "liveorder/test/runtime",
   }), /must use ARM64 architecture/);
+});
+
+test("requires numeric GitHub owner and repository IDs", () => {
+  const props = {
+    env: { account: "111122223333", region: "us-east-1" },
+    budgetEmail: "budget-test@example.invalid",
+    githubRepository: "Sylvester-Ad/live-order",
+    githubOwnerId: "123608416",
+    githubRepositoryId: "1403043851",
+    githubEnvironment: "production",
+    instanceType: "t4g.small",
+    dataVolumeGiB: 30,
+    composeVersion: "2.39.4",
+    runtimeSecretName: "liveorder/test/runtime",
+  };
+  assert.throws(() => new LiveOrderStack(new App(), "InvalidGitHubOwnerId", {
+    ...props,
+    githubOwnerId: "owner-id",
+  }), /numeric GitHub owner ID/);
+  assert.throws(() => new LiveOrderStack(new App(), "InvalidGitHubRepositoryId", {
+    ...props,
+    githubRepositoryId: "repository-id",
+  }), /numeric GitHub repository ID/);
 });

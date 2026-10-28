@@ -36,6 +36,8 @@ Keep `infrastructure/.env` for non-secret CDK configuration only. It is ignored 
 | `CDK_DEFAULT_REGION` | AWS CLI region | Explicit target AWS region. |
 | `LIVEORDER_BUDGET_EMAIL` | Required | Email for budget notices and scheduled-backup failure alerts. Confirm both AWS subscriptions. |
 | `LIVEORDER_GITHUB_REPOSITORY` | `Sylvester-Ad/live-order` | Exact repository allowed by GitHub OIDC. |
+| `LIVEORDER_GITHUB_OWNER_ID` | `123608416` | Numeric GitHub owner ID included in the OIDC subject condition. |
+| `LIVEORDER_GITHUB_REPOSITORY_ID` | `1403043851` | Numeric GitHub repository ID included in the OIDC subject condition. |
 | `LIVEORDER_GITHUB_ENVIRONMENT` | `production` | Exact GitHub Environment claim allowed to assume the deploy role. |
 | `LIVEORDER_GITHUB_OIDC_PROVIDER_ARN` | Empty | Optional existing account provider ARN for `token.actions.githubusercontent.com`; otherwise CDK creates it. |
 | `LIVEORDER_INSTANCE_TYPE` | `t4g.small` | ARM64 Graviton instance type. |

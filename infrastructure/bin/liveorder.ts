@@ -14,6 +14,8 @@ new LiveOrderStack(app, "LiveOrderProduction", {
   env: environment,
   budgetEmail: process.env.LIVEORDER_BUDGET_EMAIL,
   githubRepository: process.env.LIVEORDER_GITHUB_REPOSITORY ?? "Sylvester-Ad/live-order",
+  githubOwnerId: process.env.LIVEORDER_GITHUB_OWNER_ID ?? "123608416",
+  githubRepositoryId: process.env.LIVEORDER_GITHUB_REPOSITORY_ID ?? "1403043851",
   githubEnvironment: process.env.LIVEORDER_GITHUB_ENVIRONMENT ?? "production",
   githubOidcProviderArn: process.env.LIVEORDER_GITHUB_OIDC_PROVIDER_ARN,
   instanceType: process.env.LIVEORDER_INSTANCE_TYPE ?? "t4g.small",

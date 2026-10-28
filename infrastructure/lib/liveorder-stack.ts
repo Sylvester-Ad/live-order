@@ -35,6 +35,8 @@ const restoreReceiverService = readFileSync(
 export interface LiveOrderStackProps extends StackProps {
   readonly budgetEmail?: string;
   readonly githubRepository: string;
+  readonly githubOwnerId: string;
+  readonly githubRepositoryId: string;
   readonly githubEnvironment: string;
   readonly githubOidcProviderArn?: string;
   readonly instanceType: string;
@@ -53,6 +55,12 @@ export class LiveOrderStack extends Stack {
     }
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(props.githubRepository)) {
       throw new Error("LIVEORDER_GITHUB_REPOSITORY must use the owner/repository format.");
+    }
+    if (!/^\d+$/.test(props.githubOwnerId)) {
+      throw new Error("LIVEORDER_GITHUB_OWNER_ID must contain the numeric GitHub owner ID.");
+    }
+    if (!/^\d+$/.test(props.githubRepositoryId)) {
+      throw new Error("LIVEORDER_GITHUB_REPOSITORY_ID must contain the numeric GitHub repository ID.");
     }
     if (!/^[A-Za-z0-9_-]+$/.test(props.githubEnvironment)) {
       throw new Error("LIVEORDER_GITHUB_ENVIRONMENT must contain only letters, numbers, underscores, or hyphens.");
@@ -404,6 +412,8 @@ export class LiveOrderStack extends Stack {
     const deploymentRole = this.addGithubDeploymentRole(
       instance,
       props.githubRepository,
+      props.githubOwnerId,
+      props.githubRepositoryId,
       props.githubEnvironment,
       props.githubOidcProviderArn,
       backendRepository,
@@ -459,6 +469,8 @@ export class LiveOrderStack extends Stack {
   private addGithubDeploymentRole(
     instance: ec2.Instance,
     repository: string,
+    ownerId: string,
+    repositoryId: string,
     environmentName: string,
     existingProviderArn: string | undefined,
     backendRepository: ecr.Repository,
@@ -477,7 +489,8 @@ export class LiveOrderStack extends Stack {
       });
       providerArn = provider.ref;
     }
-    const subject = `repo:${repository}:environment:${environmentName}`;
+    const [owner, repositoryName] = repository.split("/");
+    const subject = `repo:${owner}@${ownerId}/${repositoryName}@${repositoryId}:environment:${environmentName}`;
     const role = new iam.Role(this, "GitHubDeploymentRole", {
       roleName: "LiveOrderGitHubDeployment",
       description: "GitHub Actions may invoke a deployment command on the one LiveOrder instance.",
