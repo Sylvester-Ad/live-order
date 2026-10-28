@@ -5,9 +5,15 @@
   "description": "",
   "scripts": {
     "dev": "concurrently \"pnpm --dir server dev\" \"pnpm --dir client dev\"",
-    "build": "pnpm --dir client build",
+    "build": "pnpm --dir client build && pnpm --dir server build",
     "start": "pnpm --dir server start",
-    "creator:create": "tsx server/src/scripts/create-creator.ts"
+    "test": "pnpm --dir server test && pnpm --dir client test",
+    "lint": "pnpm --dir client lint",
+    "typecheck": "pnpm exec tsc --noEmit && pnpm --dir client exec tsc -b --pretty false",
+    "db:generate": "prisma generate --config prisma7.config.ts",
+    "db:migrate:deploy": "tsx server/src/scripts/migrate-deploy.ts",
+    "db:migrate:deploy:production": "pnpm --dir server migrate:deploy:production",
+    "creator:create": "pnpm --dir server creator:create"
   },
   "keywords": [],
   "author": "",
@@ -23,13 +29,13 @@
   "type": "module",
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.0",
-    "@prisma/client": "^7.10.0"
+    "@prisma/client": "^7.10.0",
+    "prisma": "^7.10.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
     "concurrently": "^10.0.5",
     "dotenv": "^18.0.5",
-    "prisma": "^7.10.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

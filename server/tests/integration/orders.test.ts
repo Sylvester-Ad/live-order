@@ -57,9 +57,10 @@ describe("Orders API", () => {
       .send({
         name: "Classic T-shirt",
         price: 10000,
+        stockQuantity: 20,
         options: {
-          sizes: ["S", "M", "L"],
-          colors: ["Black", "White"],
+          Size: ["S", "M", "L"],
+          Colour: ["Black", "White"],
         },
       });
 
@@ -72,6 +73,7 @@ describe("Orders API", () => {
       .send({
         name: "Baseball Cap",
         price: 5000,
+        stockQuantity: 10,
       });
 
     expect(capResponse.status).toBe(201);
@@ -100,8 +102,8 @@ describe("Orders API", () => {
             productId: tShirtId,
             quantity: 2,
             selectedOptions: {
-              size: "M",
-              color: "Black",
+              Size: "M",
+              Colour: "Black",
             },
           },
           {
@@ -115,6 +117,7 @@ describe("Orders API", () => {
 
     expect(response.body.data).toMatchObject({
       liveId,
+      reference: expect.stringMatching(/^ORD-[A-F0-9]{16}$/),
       customerName: "Ama Mensah",
       customerPhone: "0241234567",
       deliveryLocation: "Madina, Accra",
@@ -131,6 +134,8 @@ describe("Orders API", () => {
 
     expect(order).not.toBeNull();
     expect(order?.totalAmount).toBe(25000);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(18);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(9);
     expect(order?.items).toHaveLength(2);
 
     expect(order?.items).toEqual(
@@ -233,5 +238,229 @@ describe("Orders API", () => {
       });
 
     expect(response.status).toBe(400);
+  });
+
+  it("rejects insufficient stock without creating an order or decrementing any item", async () => {
+    await prisma.product.update({ where: { id: tShirtId }, data: { stockQuantity: 1 } });
+    const before = await prisma.order.count();
+
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [
+          { productId: capId, quantity: 2 },
+          { productId: tShirtId, quantity: 2 },
+        ],
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("INSUFFICIENT_STOCK");
+    expect(await prisma.order.count()).toBe(before);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(10);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(1);
+  });
+
+  it("rejects option choices that are not configured for the product", async () => {
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: tShirtId, quantity: 1, selectedOptions: { Size: "XXL" } }],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("INVALID_PRODUCT_OPTIONS");
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(20);
+  });
+
+  it.each([
+    undefined,
+    { Size: "M" },
+  ])("requires every configured product preference (%s)", async (selectedOptions) => {
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: tShirtId, quantity: 1, ...(selectedOptions ? { selectedOptions } : {}) }],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("INVALID_PRODUCT_OPTIONS");
+    expect(await prisma.order.count()).toBe(0);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(20);
+  });
+
+  it("allows only one concurrent request to buy the last unit", async () => {
+    await prisma.product.update({ where: { id: capId }, data: { stockQuantity: 1 } });
+    const makeOrder = () => request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: capId, quantity: 1 }],
+      });
+
+    const results = await Promise.all([makeOrder(), makeOrder()]);
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    expect(results.find((result) => result.status === 409)?.body.error.code).toBe("INSUFFICIENT_STOCK");
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(0);
+  });
+
+  it("returns the original order for an identical idempotent retry", async () => {
+    const idempotencyKey = randomUUID();
+    const first = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: tShirtId, quantity: 2, selectedOptions: { Size: "M", Colour: "Black" } }],
+      });
+    const retry = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({
+        deliveryLocation: "Madina, Accra",
+        customerPhone: "0241234567",
+        customerName: "Ama Mensah",
+        items: [{ productId: tShirtId, quantity: 2, selectedOptions: { Colour: "Black", Size: "M" } }],
+      });
+
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.id).toBe(first.body.data.id);
+    expect(retry.body.data.reference).toBe(first.body.data.reference);
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(18);
+  });
+
+  it("rejects reuse of an idempotency key for a different request", async () => {
+    const idempotencyKey = randomUUID();
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: capId, quantity: 1 }],
+    };
+    const first = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+    const mismatched = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({ ...payload, items: [{ productId: capId, quantity: 2 }] });
+
+    expect(first.status).toBe(201);
+    expect(mismatched.status).toBe(409);
+    expect(mismatched.body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(9);
+  });
+
+  it("serializes concurrent requests using the same idempotency key", async () => {
+    await prisma.product.update({ where: { id: capId }, data: { stockQuantity: 1 } });
+    const idempotencyKey = randomUUID();
+    const makeOrder = () => request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: capId, quantity: 1 }],
+      });
+
+    const results = await Promise.all([makeOrder(), makeOrder()]);
+
+    expect(results.map((result) => result.status)).toEqual([201, 201]);
+    expect(results[0]?.body.data.id).toBe(results[1]?.body.data.id);
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(0);
+  });
+
+  it("allows retrying the same key after a failed attempt that committed no order", async () => {
+    await prisma.product.update({ where: { id: tShirtId }, data: { stockQuantity: 0 } });
+    const idempotencyKey = randomUUID();
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: tShirtId, quantity: 1, selectedOptions: { Size: "M", Colour: "Black" } }],
+    };
+    const failed = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+    expect(await prisma.order.count()).toBe(0);
+
+    await prisma.product.update({ where: { id: tShirtId }, data: { stockQuantity: 1 } });
+    const retried = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+
+    expect(failed.status).toBe(409);
+    expect(failed.body.error.code).toBe("INSUFFICIENT_STOCK");
+    expect(retried.status).toBe(201);
+    expect(await prisma.order.count()).toBe(1);
+    expect((await prisma.product.findUnique({ where: { id: tShirtId } }))?.stockQuantity).toBe(0);
+  });
+
+  it("creates distinct orders for genuinely new idempotency keys", async () => {
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: capId, quantity: 1 }],
+    };
+    const first = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", randomUUID())
+      .send(payload);
+    const second = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", randomUUID())
+      .send(payload);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+    expect(second.body.data.reference).not.toBe(first.body.data.reference);
+    expect(await prisma.order.count()).toBe(2);
+    expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(8);
+  });
+
+  it("rejects malformed idempotency keys while remaining compatible without the header", async () => {
+    const payload = {
+      customerName: "Ama Mensah",
+      customerPhone: "0241234567",
+      deliveryLocation: "Madina, Accra",
+      items: [{ productId: capId, quantity: 1 }],
+    };
+    const invalid = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .set("Idempotency-Key", "not-a-uuid")
+      .send(payload);
+    const compatible = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send(payload);
+
+    expect(invalid.status).toBe(400);
+    expect(compatible.status).toBe(201);
+    expect(await prisma.order.findUnique({ where: { id: compatible.body.data.id } })).toMatchObject({
+      idempotencyKey: null,
+      requestFingerprint: null,
+    });
   });
 });

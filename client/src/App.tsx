@@ -1,10 +1,13 @@
+import { RouterProvider } from "react-router-dom";
+
+import { AppProviders } from "./app/providers";
+import { appRouter } from "./app/router";
+
 function App() {
   return (
-    <main className="min-h-screen bg-slate-50">
-      <h1 className="text-3xl font-bold text-slate-900">
-        LiveOrder
-      </h1>
-    </main>
+    <AppProviders>
+      <RouterProvider router={appRouter} />
+    </AppProviders>
   );
 }
 

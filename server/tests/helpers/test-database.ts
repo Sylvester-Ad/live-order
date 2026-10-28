@@ -1,6 +1,12 @@
 import { prisma } from "../../src/database/prisma.js";
+import { getDatabaseConfiguration } from "../../src/config/database.js";
 
-if (process.env.LIVEORDER_DATABASE_PATH !== "../data/test.db") {
+const testDatabasePath = process.env.LIVEORDER_TEST_DATABASE_PATH?.trim() ?? "./data/test.db";
+if (getDatabaseConfiguration().path !== getDatabaseConfiguration({
+  ...process.env,
+  LIVEORDER_DATABASE_PATH: testDatabasePath,
+  NODE_ENV: "test",
+}).path) {
   throw new Error(
     "Refusing to clean the database: test database is not configured",
   );

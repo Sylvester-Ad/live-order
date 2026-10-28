@@ -1,6 +1,10 @@
 import { beforeAll, afterAll } from "vitest";
+import path from "node:path";
+import { repositoryRoot } from "../src/config/database.js";
 
-process.env.LIVEORDER_DATABASE_PATH = "../data/test.db";
+process.env.LIVEORDER_DATABASE_PATH = process.env.LIVEORDER_TEST_DATABASE_PATH?.trim()
+  ? path.resolve(repositoryRoot, process.env.LIVEORDER_TEST_DATABASE_PATH)
+  : path.join(repositoryRoot, "data", "test.db");
 
 beforeAll(() => {
   if (process.env.NODE_ENV === "production") {

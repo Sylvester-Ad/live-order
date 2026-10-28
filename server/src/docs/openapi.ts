@@ -41,7 +41,63 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/health/ready",
+  tags: ["System"],
+  summary: "Readiness check",
+  description: "Checks whether the API can reach its configured SQLite database.",
+  responses: {
+    200: jsonResponse("API and required dependencies are ready.", schemaRef("HealthResponse")),
+    503: errorResponse("A required dependency is unavailable."),
+  },
+});
+
 // POST /api/v1/creator/access
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/lives/{liveId}/products/{productId}/image",
+  tags: ["Products"],
+  summary: "Upload or replace a product image",
+  description: "Uploads a JPEG, PNG, or WebP image up to 5 MB for a product owned by the authenticated creator.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ liveId: z.string(), productId: z.string() }),
+    body: {
+      required: true,
+      content: {
+        "multipart/form-data": {
+          schema: z.object({ image: z.string().openapi({ type: "string", format: "binary" }) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: jsonResponse("Image uploaded successfully.", schemaRef("ProductSuccessResponse")),
+    400: errorResponse("Invalid image upload."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+    413: errorResponse("Image exceeds the 5 MB limit."),
+    502: errorResponse("Image storage provider failed."),
+    503: errorResponse("Image storage is not configured."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/lives/{liveId}/products/{productId}/image",
+  tags: ["Products"],
+  summary: "Remove a product image",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ liveId: z.string(), productId: z.string() }) },
+  responses: {
+    200: jsonResponse("Image removed successfully.", schemaRef("ProductSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+    502: errorResponse("Image storage provider failed."),
+  },
+});
+
 registry.registerPath({
   method: "post",
   path: "/api/v1/creator/access",
@@ -201,12 +257,38 @@ registry.registerPath({
 
 // POST /api/v1/lives/{liveId}/products
 registry.registerPath({
+  method: "get",
+  path: "/api/v1/lives/{liveId}/products",
+  tags: ["Products"],
+  summary: "List products for a Live",
+  description:
+    "Returns products associated with a Live owned by the authenticated creator, oldest first.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({
+      liveId: z.string().openapi({
+        description: "ID of the Live whose products should be returned.",
+      }),
+    }),
+  },
+  responses: {
+    200: jsonResponse(
+      "Products returned successfully.",
+      schemaRef("ProductsSuccessResponse"),
+    ),
+    400: errorResponse("Invalid Live ID."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Live not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
   method: "post",
   path: "/api/v1/lives/{liveId}/products",
   tags: ["Products"],
   summary: "Create a product",
   description:
-    "Adds a product to a Live owned by the authenticated creator. Prices are represented in pesewas.",
+    "Adds a product to a Live owned by the authenticated creator. The request may be JSON without an image or multipart form data with a JSON product field and one JPEG, PNG, or WebP image up to 5 MB. When an image is supplied, the image and product are persisted together after the provider upload succeeds. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -216,7 +298,15 @@ registry.registerPath({
     }),
     body: {
       required: true,
-      content: jsonContent(schemaRef("CreateProductRequest")),
+      content: {
+        "application/json": { schema: schemaRef("CreateProductRequest") },
+        "multipart/form-data": {
+          schema: z.object({
+            product: z.string().openapi({ description: "JSON-encoded CreateProductRequest." }),
+            image: z.string().openapi({ type: "string", format: "binary" }),
+          }),
+        },
+      },
     },
   },
   responses: {
@@ -227,6 +317,61 @@ registry.registerPath({
     400: errorResponse("Invalid Live ID or product data."),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Live not found or not owned by the creator."),
+    413: errorResponse("Product image exceeds 5 MB."),
+    502: errorResponse("Image storage provider could not store the image."),
+    503: errorResponse("Image storage is not configured."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/lives/{liveId}/products/{productId}",
+  tags: ["Products"],
+  summary: "Update a product",
+  description:
+    "Updates a product belonging to a Live owned by the authenticated creator.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({
+      liveId: z.string(),
+      productId: z.string(),
+    }),
+    body: {
+      required: true,
+      content: jsonContent(schemaRef("UpdateProductRequest")),
+    },
+  },
+  responses: {
+    200: jsonResponse(
+      "Product updated successfully.",
+      schemaRef("ProductSuccessResponse"),
+    ),
+    400: errorResponse("Invalid product ID or request body."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/lives/{liveId}/products/{productId}",
+  tags: ["Products"],
+  summary: "Delete a product",
+  description:
+    "Deletes a product belonging to a Live owned by the authenticated creator. Products referenced by order history cannot be deleted.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({
+      liveId: z.string(),
+      productId: z.string(),
+    }),
+  },
+  responses: {
+    204: { description: "Product deleted successfully." },
+    400: errorResponse("Invalid product ID."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+    409: errorResponse("Product has order history and cannot be deleted."),
   },
 });
 
@@ -237,11 +382,17 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Place an order",
   description:
-    "Creates a customer order for an active Live. Product prices and order totals are calculated by the backend. No creator session is required.",
+    "Creates a customer order for an active Live. Each configured product option group requires one valid customer selection. The backend uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.",
   request: {
     params: z.object({
       liveId: z.string().openapi({
         description: "ID of the Live being ordered from.",
+      }),
+    }),
+    headers: z.object({
+      "Idempotency-Key": z.uuid().optional().openapi({
+        param: { name: "Idempotency-Key", in: "header" },
+        description: "A UUID reused for retries of the same logical order request.",
       }),
     }),
     body: {
@@ -254,8 +405,9 @@ registry.registerPath({
       "Order created successfully.",
       schemaRef("OrderSuccessResponse"),
     ),
-    400: errorResponse("Invalid Live ID or order data."),
-    404: errorResponse("Live or requested product not found."),
+    400: errorResponse("Invalid order data, product, or selected product options."),
+    404: errorResponse("Live not found."),
+    409: errorResponse("Live is inactive, product stock is insufficient, or the idempotency key was reused with a different request."),
   },
 });
 
@@ -324,7 +476,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "Export orders as CSV",
   description:
-    "Downloads order data as a CSV file. Monetary values are expressed in pesewas.",
+    "Downloads order data as a CSV file. Monetary values are expressed in pesewas. Existing columns are followed by the customer-facing order reference.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({

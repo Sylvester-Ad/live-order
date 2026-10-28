@@ -1,17 +1,6 @@
 import { z } from "zod";
 
-const jsonValueSchema: z.ZodType<
-  string | number | boolean | null | { [key: string]: unknown } | unknown[]
-> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValueSchema),
-    z.record(z.string(), jsonValueSchema),
-  ]),
-);
+export const orderIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
 
 export const createOrderSchema = z.object({
   customerName: z.string().trim().min(1).max(100),
@@ -23,9 +12,7 @@ export const createOrderSchema = z.object({
       z.object({
         productId: z.uuid(),
         quantity: z.number().int().min(1).max(100),
-        selectedOptions: z
-          .record(z.string(), jsonValueSchema)
-          .optional(),
+        selectedOptions: z.record(z.string(), z.string()).optional(),
       }),
     )
     .min(1)
@@ -37,6 +24,7 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export const orderResponseSchema = z.object({
   id: z.string(),
   liveId: z.string(),
+  reference: z.string(),
   customerName: z.string(),
   customerPhone: z.string(),
   deliveryLocation: z.string(),

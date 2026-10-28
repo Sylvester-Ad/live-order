@@ -1,0 +1,50 @@
+services:
+  caddy:
+    image: "${LIVEORDER_CADDY_IMAGE:-liveorder-caddy:local}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: caddy
+    environment:
+      SITE_ADDRESS: "${SITE_ADDRESS:-:80}"
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
+    labels:
+      com.liveorder.release: "${LIVEORDER_RELEASE_VERSION:-local}"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    image: "${LIVEORDER_BACKEND_IMAGE:-liveorder-backend:local}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      LIVEORDER_DATABASE_PATH: /var/lib/liveorder/liveorder.db
+      CLOUDINARY_CLOUD_NAME: "${CLOUDINARY_CLOUD_NAME:-}"
+      CLOUDINARY_API_KEY: "${CLOUDINARY_API_KEY:-}"
+      CLOUDINARY_API_SECRET: "${CLOUDINARY_API_SECRET:-}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      AWS_REGION: "${AWS_REGION:-}"
+      AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-}"
+      LIVEORDER_BACKUP_BUCKET: "${LIVEORDER_BACKUP_BUCKET:-}"
+      LIVEORDER_BACKUP_PREFIX: "${LIVEORDER_BACKUP_PREFIX:-liveorder/backups/sqlite}"
+    volumes:
+      - liveorder-data:/var/lib/liveorder
+    labels:
+      com.liveorder.release: "${LIVEORDER_RELEASE_VERSION:-local}"
+    restart: unless-stopped
+
+volumes:
+  liveorder-data:
+  caddy-data:
+  caddy-config:

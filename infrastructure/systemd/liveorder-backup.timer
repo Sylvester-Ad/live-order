@@ -1,0 +1,11 @@
+[Unit]
+Description=Run LiveOrder SQLite backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=liveorder-backup.service
+
+[Install]
+WantedBy=timers.target

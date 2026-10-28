@@ -4,7 +4,7 @@ import { AppError } from "./app-error.js";
 
 export const errorHandler: ErrorRequestHandler = (
   error,
-  _req,
+  req,
   res,
   _next,
 ) => {
@@ -30,7 +30,19 @@ export const errorHandler: ErrorRequestHandler = (
     });
   }
 
-  console.error(error);
+  if (process.env.NODE_ENV === "production") {
+    const errorName = error instanceof Error ? error.name : typeof error;
+    console.error(JSON.stringify({
+      level: "error",
+      event: "http.unhandled_error",
+      method: req.method,
+      route: req.route?.path ? `${req.baseUrl}${req.route.path}` : "unmatched",
+      status: 500,
+      errorName,
+    }));
+  } else {
+    console.error(error);
+  }
 
   return res.status(500).json({
     error: {

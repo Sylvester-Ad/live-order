@@ -1,0 +1,9 @@
+[Unit]
+Description=Create and upload a verified LiveOrder SQLite backup
+Wants=network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/liveorder-backup
+TimeoutStartSec=1h

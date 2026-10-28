@@ -8,12 +8,14 @@ import {
 import {
   createLiveSchema,
   liveResponseSchema,
+  tiktokLiveUrlSchema,
   updateLiveSchema,
 } from "../modules/lives/lives.schemas.js";
 
 import {
   createProductSchema,
   productResponseSchema,
+  updateProductFieldsSchema,
 } from "../modules/products/products.schemas.js";
 
 import {
@@ -32,7 +34,13 @@ export const registry = new OpenAPIRegistry();
 const createProductOpenApiSchema = createProductSchema
   .omit({ options: true })
   .extend({
-    options: z.record(z.string(), z.unknown()).optional(),
+    options: z.record(z.string(), z.array(z.string())).optional(),
+  });
+
+const updateProductOpenApiSchema = updateProductFieldsSchema
+  .omit({ options: true })
+  .extend({
+    options: z.record(z.string(), z.array(z.string())).nullable().optional(),
   });
 
 // OpenAPI representation of the order creation request.
@@ -48,7 +56,7 @@ const createOrderOpenApiSchema = createOrderSchema
         z.object({
           productId: z.uuid(),
           quantity: z.number().int().min(1).max(100),
-          selectedOptions: z.record(z.string(), z.unknown()).optional(),
+          selectedOptions: z.record(z.string(), z.string()).optional(),
         }),
       )
       .min(1)
@@ -88,6 +96,10 @@ export const productSuccessSchema = z.object({
   data: productResponseSchema,
 });
 
+export const productsSuccessSchema = z.object({
+  data: z.array(productResponseSchema),
+});
+
 export const orderSuccessSchema = z.object({
   data: orderResponseSchema,
 });
@@ -103,12 +115,20 @@ export const publicLiveResponseSchema = z.object({
   name: z.string(),
   slug: z.string(),
   status: z.literal("ACTIVE"),
+  tiktokLiveUrl: tiktokLiveUrlSchema.nullable(),
   products: z.array(
     z.object({
       id: z.string(),
       name: z.string(),
       price: z.number().int(),
       options: z.unknown().nullable(),
+      stockQuantity: z.number().int().min(0),
+      available: z.boolean(),
+      image: z.object({
+        id: z.string(),
+        url: z.url(),
+        createdAt: z.coerce.date(),
+      }).nullable(),
     }),
   ),
 });
@@ -132,8 +152,10 @@ registry.register("LiveSuccessResponse", liveSuccessSchema);
 registry.register("LivesSuccessResponse", livesSuccessSchema);
 
 registry.register("CreateProductRequest", createProductOpenApiSchema);
+registry.register("UpdateProductRequest", updateProductOpenApiSchema);
 registry.register("ProductResponse", productResponseSchema);
 registry.register("ProductSuccessResponse", productSuccessSchema);
+registry.register("ProductsSuccessResponse", productsSuccessSchema);
 
 registry.register("CreateOrderRequest", createOrderOpenApiSchema);
 registry.register("OrderResponse", orderResponseSchema);

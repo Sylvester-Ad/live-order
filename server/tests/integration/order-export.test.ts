@@ -67,6 +67,7 @@ describe("Order CSV export API", () => {
         customerPhone: "0241234567",
         deliveryLocation: "Accra",
         totalAmount: 25000,
+        reference: "ORD-0000000000000005",
         items: {
           create: {
             productId,
@@ -92,6 +93,8 @@ describe("Order CSV export API", () => {
     expect(response.text).toContain('"Ama Mensah"');
     expect(response.text).toContain('"Cotton Shirt"');
     expect(response.text).toContain('"25000"');
+    expect(response.text).toContain('"Order Reference"');
+    expect(response.text).toContain('"ORD-0000000000000005"');
   });
 
   it("exports headers when the Live has no orders", async () => {
@@ -102,6 +105,39 @@ describe("Order CSV export API", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain('"Order ID"');
     expect(response.text).toContain('"Customer Phone"');
+    expect(response.text).toContain('"Order Reference"');
+  });
+
+  it("escapes commas, quotes, and line breaks in customer and product fields", async () => {
+    await prisma.order.create({
+      data: {
+        liveId,
+        reference: "ORD-0000000000000006",
+        customerName: 'Ama, "The Seller"',
+        customerPhone: "0241234567",
+        deliveryLocation: "Accra\nOsu",
+        totalAmount: 12500,
+        items: {
+          create: {
+            productId,
+            productName: 'Cotton, "classic" shirt',
+            unitPrice: 12500,
+            quantity: 1,
+            selectedOptions: { Colour: "Blue, sky" },
+          },
+        },
+      },
+    });
+
+    const response = await request(app)
+      .get(`/api/v1/lives/${liveId}/orders/export`)
+      .set("Cookie", cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('"Ama, ""The Seller"""');
+    expect(response.text).toContain('"Accra\nOsu"');
+    expect(response.text).toContain('"Cotton, ""classic"" shirt"');
+    expect(response.text).toContain('"{""Colour"":""Blue, sky""}"');
   });
 
   it("rejects unauthenticated requests", async () => {
