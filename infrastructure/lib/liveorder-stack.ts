@@ -534,6 +534,7 @@ export class LiveOrderStack extends Stack {
       sid: "PushLiveOrderImages",
       actions: [
         "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
         "ecr:CompleteLayerUpload",
         "ecr:DescribeImages",
         "ecr:InitiateLayerUpload",
