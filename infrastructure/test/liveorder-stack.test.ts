@@ -294,6 +294,7 @@ test("grants instance pull and GitHub push access only to the two image reposito
     .flatMap((resource) => resource.Properties?.PolicyDocument?.Statement ?? []);
   const pullPolicy = statements.find((statement) => statement.Sid === "PullLiveOrderImages");
   const pushPolicy = statements.find((statement) => statement.Sid === "PushLiveOrderImages");
+  const authenticationPolicy = statements.find((statement) => statement.Sid === "AuthenticateToEcr");
   const repositories = Object.entries(resources)
     .filter(([, resource]) => resource.Type === "AWS::ECR::Repository")
     .map(([logicalId]) => logicalId)
@@ -306,6 +307,7 @@ test("grants instance pull and GitHub push access only to the two image reposito
   ]);
   assert.deepEqual(pushPolicy?.Action, [
     "ecr:BatchCheckLayerAvailability",
+    "ecr:BatchGetImage",
     "ecr:CompleteLayerUpload",
     "ecr:DescribeImages",
     "ecr:InitiateLayerUpload",
@@ -316,6 +318,14 @@ test("grants instance pull and GitHub push access only to the two image reposito
     const repositoryReferences = policy?.Resource?.map((resource) => resource["Fn::GetAtt"][0]).sort();
     assert.deepEqual(repositoryReferences, repositories);
   }
+  assert.deepEqual(
+    Array.isArray(authenticationPolicy?.Action) ? authenticationPolicy.Action : [authenticationPolicy?.Action],
+    ["ecr:GetAuthorizationToken"],
+  );
+  assert.deepEqual(
+    Array.isArray(authenticationPolicy?.Resource) ? authenticationPolicy.Resource : [authenticationPolicy?.Resource],
+    ["*"],
+  );
 });
 
 test("installs a daily serialized backup timer and alarms on backup failures", () => {
