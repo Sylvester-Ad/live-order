@@ -97,6 +97,20 @@ jobs:
           test -n "$AWS_REGION" || { echo "Set the AWS_REGION repository variable."; exit 1; }
           test -n "$LIVEORDER_INSTANCE_ID" || { echo "Set LIVEORDER_INSTANCE_ID from the CDK output."; exit 1; }
           [[ "$LIVEORDER_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]] || { echo "LIVEORDER_INSTANCE_ID is not a valid EC2 instance ID."; exit 1; }
+      
+      - name: Debug GitHub OIDC claims
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+            const payload = JSON.parse(
+              Buffer.from(token.split('.')[1], 'base64url').toString()
+            );
+            console.log(JSON.stringify({
+              iss: payload.iss,
+              aud: payload.aud,
+              sub: payload.sub
+            }, null, 2));
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
