@@ -41,8 +41,8 @@ trap - EXIT
 docker compose --env-file "$environment_file" -f "$compose_file" pull backend caddy
 
 existing_backend=$(docker compose --env-file "$environment_file" -f "$compose_file" ps -q backend)
+/usr/local/sbin/liveorder-backup
 if [[ -n "$existing_backend" ]]; then
-  systemctl start liveorder-backup.service
   docker compose --env-file "$environment_file" -f "$compose_file" stop caddy backend
 fi
 

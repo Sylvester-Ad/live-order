@@ -132,7 +132,7 @@ Securely retain the one-time code from that private terminal. Do not run provisi
 
 ## Deployments and recovery from a failed release
 
-The workflow runs backend and frontend tests, lint/type checks, Prisma validation/client generation, migrations against an isolated temporary SQLite database, production builds, Compose validation, CDK tests/synthesis, and ARM64 image builds. Deployment builds/pushes SHA-tagged immutable images, then uses SSM Run Command. The host makes a verified off-site backup before each migration when an existing backend is running. Migrations are applied with the new backend image; Compose then recreates services and waits for health checks.
+The workflow runs backend and frontend tests, lint/type checks, Prisma validation/client generation, migrations against an isolated temporary SQLite database, production builds, Compose validation, CDK tests/synthesis, and ARM64 image builds. Deployment builds/pushes SHA-tagged immutable images, then uses SSM Run Command. Before every migration, the host synchronously runs the same locked backup helper used by the timer. It verifies the persistent database path, skips only when no database file exists, and requires a verified S3 upload for an existing database; backup errors or an already-running backup abort deployment. Migrations are applied with the new backend image; Compose then recreates services and waits for health checks.
 
 Production migrations are never reset or rolled back automatically. If deployment fails:
 
