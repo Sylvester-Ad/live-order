@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,11 @@ type Scenario = {
   backendRunning: boolean;
   databaseExists: boolean;
   backupUploadFails?: boolean;
+  missingDocker?: boolean;
+  missingCompose?: boolean;
+  missingComposeEnvironment?: boolean;
+  missingJq?: boolean;
+  missingBootstrapMarker?: boolean;
 };
 
 async function runDeployment(scenario: Scenario) {
@@ -25,11 +30,15 @@ async function runDeployment(scenario: Scenario) {
     liveorder: path.join(root, "opt/liveorder"),
     config: path.join(root, "etc/liveorder"),
     lock: path.join(root, "run/lock"),
+    bootstrap: path.join(root, "var/lib/liveorder"),
     volume: path.join(root, "docker-volume"),
     scripts: path.join(root, "usr/local/sbin"),
   };
   await Promise.all(Object.values(paths).map((directory) => mkdir(directory, { recursive: true })));
   await mkdir(path.join(paths.volume, "backups"), { recursive: true });
+  if (!scenario.missingBootstrapMarker) {
+    await writeFile(path.join(paths.bootstrap, "bootstrap-ready"), "ready\n");
+  }
 
   if (scenario.databaseExists) {
     await writeFile(path.join(paths.volume, "liveorder.db"), "existing database");
@@ -39,17 +48,25 @@ async function runDeployment(scenario: Scenario) {
     path.join(paths.liveorder, ".env"),
     "EXISTING_CONFIGURATION=value\nLIVEORDER_DATABASE_PATH=/tmp/wrong.sqlite\n",
   );
-  await writeFile(path.join(paths.config, "compose.env"), [
-    "AWS_REGION=us-east-1",
-    "LIVEORDER_BACKUP_BUCKET=backup-bucket",
-    "LIVEORDER_BACKUP_PREFIX=liveorder/backups/sqlite",
-    "LIVEORDER_BACKEND_REPOSITORY=111122223333.dkr.ecr.us-east-1.amazonaws.com/liveorder/backend",
-    "LIVEORDER_CADDY_REPOSITORY=111122223333.dkr.ecr.us-east-1.amazonaws.com/liveorder/caddy",
-  ].join("\n"));
+  if (!scenario.missingComposeEnvironment) {
+    await writeFile(path.join(paths.config, "compose.env"), [
+      "AWS_REGION=us-east-1",
+      "LIVEORDER_BACKUP_BUCKET=backup-bucket",
+      "LIVEORDER_BACKUP_PREFIX=liveorder/backups/sqlite",
+      "LIVEORDER_BACKEND_REPOSITORY=111122223333.dkr.ecr.us-east-1.amazonaws.com/liveorder/backend",
+      "LIVEORDER_CADDY_REPOSITORY=111122223333.dkr.ecr.us-east-1.amazonaws.com/liveorder/caddy",
+      "LIVEORDER_RUNTIME_SECRET_NAME=liveorder/test/runtime",
+      "SITE_ADDRESS=:80",
+      "HTTP_PORT=80",
+      "HTTPS_PORT=443",
+    ].join("\n"));
+  }
+  await writeFile(path.join(paths.config, "runtime-config"), "SECRET_ARN='runtime'\nAWS_REGION='us-east-1'\n");
 
   const replacePaths = (script: string) => script
     .replaceAll("/opt/liveorder", paths.liveorder)
     .replaceAll("/etc/liveorder", paths.config)
+    .replace("/var/lib/liveorder/bootstrap-ready", path.join(paths.bootstrap, "bootstrap-ready"))
     .replaceAll("/run/lock", paths.lock);
   const backupScriptPath = path.join(root, "liveorder-backup");
   const deployScriptPath = path.join(root, "liveorder-deploy");
@@ -61,16 +78,24 @@ async function runDeployment(scenario: Scenario) {
   await writeFile(
     deployScriptPath,
     replacePaths(deployScript)
-      .replace("/usr/local/sbin/liveorder-sync-runtime-env", syncScriptPath)
-      .replace("/usr/local/sbin/liveorder-backup", backupScriptPath),
+      .replaceAll("/usr/local/sbin/liveorder-sync-runtime-env", syncScriptPath)
+      .replaceAll("/usr/local/sbin/liveorder-backup", backupScriptPath),
     { mode: 0o700 },
   );
   await writeFile(syncScriptPath, "#!/usr/bin/env bash\nset -euo pipefail\n", { mode: 0o700 });
 
-  await writeFile(path.join(paths.bin, "docker"), `#!/usr/bin/env bash
+  if (!scenario.missingDocker) await writeFile(path.join(paths.bin, "docker"), `#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\\n' "$*" >> "$TEST_COMMAND_LOG"
-if [[ "$1" == login ]]; then
+if [[ "$*" == "info --format {{.DockerRootDir}}" ]]; then
+  printf '/var/lib/docker\\n'
+elif [[ "$*" == "info" ]]; then
+  exit 0
+elif [[ "$*" == "compose version" ]]; then
+  [[ "$TEST_COMPOSE_MISSING" != 1 ]]
+elif [[ "$*" == *"compose config --quiet"* ]]; then
+  exit 0
+elif [[ "$1" == login ]]; then
   cat >/dev/null
 elif [[ "$*" == *"ps -q backend"* ]]; then
   if [[ "$TEST_BACKEND_RUNNING" == 1 ]] || grep -q 'migrate-deploy.js' "$TEST_COMMAND_LOG"; then
@@ -131,7 +156,21 @@ elif [[ "$*" == *"s3 cp"* && "$TEST_BACKUP_UPLOAD_FAILS" == 1 ]]; then
 fi
 `);
   await writeFile(path.join(paths.bin, "chown"), "#!/usr/bin/env bash\nexit 0\n");
-  await Promise.all(["docker", "aws", "chown"].map(async (name) => {
+  await writeFile(path.join(paths.bin, "systemctl"), "#!/usr/bin/env bash\nexit 0\n");
+  await writeFile(path.join(paths.bin, "mountpoint"), "#!/usr/bin/env bash\nexit 0\n");
+  await writeFile(path.join(paths.bin, "findmnt"), "#!/usr/bin/env bash\nprintf 'xfs\\n'\n");
+  if (scenario.missingDocker || scenario.missingJq) {
+    await symlink("/bin/bash", path.join(paths.bin, "bash"));
+  }
+  const executableNames = [
+    ...(scenario.missingDocker ? [] : ["docker"]),
+    "aws",
+    "chown",
+    "systemctl",
+    "mountpoint",
+    "findmnt",
+  ];
+  await Promise.all(executableNames.map(async (name) => {
     await chmod(path.join(paths.bin, name), 0o700);
   }));
 
@@ -139,7 +178,10 @@ fi
     encoding: "utf8",
     env: {
       ...process.env,
-      PATH: `${paths.bin}:${process.env.PATH ?? ""}`,
+      PATH: scenario.missingDocker || scenario.missingJq
+        ? paths.bin
+        : `${paths.bin}:${process.env.PATH ?? ""}`,
+      TEST_COMPOSE_MISSING: scenario.missingCompose ? "1" : "0",
       TEST_BACKEND_RUNNING: scenario.backendRunning ? "1" : "0",
       TEST_BACKUP_UPLOAD_FAILS: scenario.backupUploadFails ? "1" : "0",
       TEST_COMMAND_LOG: logPath,
@@ -203,6 +245,82 @@ test("aborts before migrations if backup upload fails", async () => {
     assert.notEqual(result.status, 0);
     assert.ok(log.includes("aws s3 cp"), `${result.stdout}\n${result.stderr}\n${log}`);
     assert.ok(!log.includes("migrate-deploy.js"), `${result.stdout}\n${result.stderr}\n${log}`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fails with the missing Docker command before touching application services", async () => {
+  const { root, log, result } = await runDeployment({
+    backendRunning: false,
+    databaseExists: true,
+    missingDocker: true,
+  });
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /prerequisite is missing: command 'docker'/);
+    assert.equal(log, "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fails with a missing required host utility before touching application services", async () => {
+  const { root, log, result } = await runDeployment({
+    backendRunning: false,
+    databaseExists: true,
+    missingJq: true,
+  });
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /prerequisite is missing: command 'jq'/);
+    assert.equal(log, "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fails when first-boot bootstrap did not write its readiness marker", async () => {
+  const { root, log, result } = await runDeployment({
+    backendRunning: false,
+    databaseExists: true,
+    missingBootstrapMarker: true,
+  });
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /bootstrap is not complete/);
+    assert.equal(log, "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fails with the missing Compose plugin before attempting application deployment", async () => {
+  const { root, log, result } = await runDeployment({
+    backendRunning: false,
+    databaseExists: true,
+    missingCompose: true,
+  });
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Docker Compose plugin is unavailable/);
+    assert.ok(!log.includes("migrate-deploy.js"), log);
+    assert.ok(!log.includes("aws ecr get-login-password"), log);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fails with the missing host configuration file before application deployment", async () => {
+  const { root, log, result } = await runDeployment({
+    backendRunning: false,
+    databaseExists: true,
+    missingComposeEnvironment: true,
+  });
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /file '.*compose\.env'/);
+    assert.equal(log, "");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { LiveOrderStack } from "../lib/liveorder-stack.js";
 
-function synthTemplate(githubOidcProviderArn?: string): Template {
+function synthTemplate(githubOidcProviderArn?: string, initializeDataVolume = false): Template {
   const app = new App();
   const stack = new LiveOrderStack(app, "TestLiveOrder", {
     env: { account: "111122223333", region: "us-east-1" },
@@ -15,6 +16,7 @@ function synthTemplate(githubOidcProviderArn?: string): Template {
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
+    initializeDataVolume,
     composeVersion: "2.39.4",
     runtimeSecretName: "liveorder/test/runtime",
     githubOidcProviderArn,
@@ -95,6 +97,36 @@ test("uses an encrypted retained data volume and provisions Docker Compose", () 
       }),
     }),
   });
+  const instance = Object.values(template.findResources("AWS::EC2::Instance"))[0];
+  const userData = JSON.stringify(instance?.Properties?.UserData);
+  assert.match(userData, /liveorder-bootstrap\.log/);
+  assert.match(userData, /instance bootstrap completed successfully/);
+  assert.match(userData, /docker info/);
+  assert.match(userData, /dnf install -y docker/);
+  assert.match(userData, /amazon-ec2-utils/);
+  assert.match(userData, /docker-compose-linux-aarch64/);
+  assert.match(userData, /Requires=var-lib-docker\.mount/);
+  assert.match(userData, /refusing to format it/);
+  assert.match(userData, /INITIALIZE_DATA_VOLUME='false'/);
+  assert.match(userData, /bootstrap-ready/);
+  assert.doesNotMatch(userData, /defaults,nofail/);
+  assert.ok(userData.indexOf("mount /var/lib/docker") < userData.indexOf("dnf install -y docker"));
+  assert.ok(userData.indexOf("Requires=var-lib-docker.mount") < userData.indexOf("dnf install -y docker"));
+});
+
+test("synthesized bootstrap script is valid Bash and formats only with explicit opt-in", () => {
+  const instance = Object.values(synthTemplate(undefined, true).findResources("AWS::EC2::Instance"))[0];
+  const userData = instance?.Properties?.UserData as {
+    "Fn::Base64"?: { "Fn::Join"?: [string, unknown[]] };
+  } | undefined;
+  const joinedParts = userData?.["Fn::Base64"]?.["Fn::Join"]?.[1];
+  assert.ok(joinedParts);
+  const script = joinedParts
+    .map((part) => typeof part === "string" ? part : "test-volume-id")
+    .join("");
+  const syntaxCheck = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
+  assert.equal(syntaxCheck.status, 0, syntaxCheck.stderr);
+  assert.match(script, /INITIALIZE_DATA_VOLUME='true'/);
 });
 
 test("creates a private versioned S3 backup bucket with 90-day lifecycle", () => {
@@ -397,6 +429,7 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 10,
+    initializeDataVolume: false,
     composeVersion: "2.39.4",
     runtimeSecretName: "liveorder/test/runtime",
   }), /at least 20 GiB/);
@@ -409,6 +442,7 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
+    initializeDataVolume: false,
     composeVersion: "latest",
     runtimeSecretName: "liveorder/test/runtime",
   }), /pinned semantic version/);
@@ -421,6 +455,7 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
+    initializeDataVolume: false,
     composeVersion: "2.39.4",
     runtimeSecretName: "liveorder/test/runtime",
     siteAddress: "example.com;touch /tmp/pwned",
@@ -434,6 +469,7 @@ test("rejects invalid sizing and unpinned Compose versions", () => {
     githubEnvironment: "production",
     instanceType: "t3.small",
     dataVolumeGiB: 30,
+    initializeDataVolume: false,
     composeVersion: "2.39.4",
     runtimeSecretName: "liveorder/test/runtime",
   }), /must use ARM64 architecture/);
@@ -449,6 +485,7 @@ test("requires numeric GitHub owner and repository IDs", () => {
     githubEnvironment: "production",
     instanceType: "t4g.small",
     dataVolumeGiB: 30,
+    initializeDataVolume: false,
     composeVersion: "2.39.4",
     runtimeSecretName: "liveorder/test/runtime",
   };

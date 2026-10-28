@@ -45,6 +45,7 @@ export interface LiveOrderStackProps extends StackProps {
   readonly githubOidcProviderArn?: string;
   readonly instanceType: string;
   readonly dataVolumeGiB: number;
+  readonly initializeDataVolume: boolean;
   readonly composeVersion: string;
   readonly runtimeSecretName: string;
   readonly siteAddress?: string;
@@ -262,10 +263,15 @@ export class LiveOrderStack extends Stack {
     });
 
     instance.addUserData(
-      "set -euo pipefail",
-      "dnf install -y docker curl xfsprogs awscli jq util-linux python3",
+      "set -Eeuo pipefail",
+      "exec > >(tee -a /var/log/liveorder-bootstrap.log) 2>&1",
+      "trap 'status=$?; echo \"LiveOrder bootstrap failed (status $status, line ${BASH_LINENO[0]}). See /var/log/liveorder-bootstrap.log and /var/log/cloud-init-output.log.\" >&2; exit \"$status\"' ERR",
+      "echo 'Starting LiveOrder instance bootstrap.'",
+      "dnf install -y amazon-ec2-utils curl xfsprogs awscli jq util-linux python3",
+      "test -x /sbin/ebsnvme-id || { echo 'Required Amazon EBS NVMe utility is missing: /sbin/ebsnvme-id' >&2; exit 1; }",
       "mkdir -p /var/lib/docker",
       `DATA_VOLUME_ID='${dataVolume.volumeId}'`,
+      `INITIALIZE_DATA_VOLUME='${props.initializeDataVolume ? "true" : "false"}'`,
       "DATA_DEVICE=''",
       "for attempt in $(seq 1 60); do",
       "  for candidate in /dev/nvme*n1; do",
@@ -276,11 +282,20 @@ export class LiveOrderStack extends Stack {
       "done",
       "test -n \"$DATA_DEVICE\" || { echo 'LiveOrder data volume not found' >&2; exit 1; }",
       "FILESYSTEM=$(blkid -s TYPE -o value \"$DATA_DEVICE\" || true)",
-      "if [ -z \"$FILESYSTEM\" ]; then mkfs.xfs \"$DATA_DEVICE\"; FILESYSTEM=xfs; fi",
+      "if [ -z \"$FILESYSTEM\" ]; then",
+      "  if [ \"$INITIALIZE_DATA_VOLUME\" != true ]; then",
+      "    echo 'LiveOrder data volume has no recognized filesystem; refusing to format it. Set LIVEORDER_INITIALIZE_DATA_VOLUME=true only for a confirmed-new, empty volume.' >&2",
+      "    exit 1",
+      "  fi",
+      "  mkfs.xfs \"$DATA_DEVICE\"",
+      "  FILESYSTEM=xfs",
+      "fi",
       "test \"$FILESYSTEM\" = xfs || { echo 'Unexpected filesystem on LiveOrder data volume' >&2; exit 1; }",
       "DATA_UUID=$(blkid -s UUID -o value \"$DATA_DEVICE\")",
-      "grep -q \"UUID=$DATA_UUID /var/lib/docker \" /etc/fstab || echo \"UUID=$DATA_UUID /var/lib/docker xfs defaults,nofail 0 2\" >> /etc/fstab",
+      "grep -q \"UUID=$DATA_UUID /var/lib/docker \" /etc/fstab || echo \"UUID=$DATA_UUID /var/lib/docker xfs defaults,x-systemd.device-timeout=120s 0 2\" >> /etc/fstab",
       "mount /var/lib/docker",
+      "mountpoint -q /var/lib/docker || { echo 'LiveOrder data volume is not mounted at /var/lib/docker' >&2; exit 1; }",
+      "test \"$(findmnt -rn -T /var/lib/docker -o FSTYPE)\" = xfs || { echo 'LiveOrder data volume mount is not XFS' >&2; exit 1; }",
       "mkdir -p /etc/docker",
       "cat > /etc/docker/daemon.json <<'DOCKER_CONFIG'",
       JSON.stringify({
@@ -294,12 +309,28 @@ export class LiveOrderStack extends Stack {
         },
       }),
       "DOCKER_CONFIG",
+      "install -d -m 0755 /etc/systemd/system/docker.service.d",
+      "cat > /etc/systemd/system/docker.service.d/10-liveorder-data-volume.conf <<'DOCKER_VOLUME_DEPENDENCY'",
+      "[Unit]",
+      "Requires=var-lib-docker.mount",
+      "After=var-lib-docker.mount",
+      "DOCKER_VOLUME_DEPENDENCY",
+      "systemctl daemon-reload",
+      "dnf install -y docker",
       "install -d -m 0755 /usr/local/lib/docker/cli-plugins",
       `curl --fail --silent --show-error --location --retry 3 'https://github.com/docker/compose/releases/download/v${props.composeVersion}/docker-compose-linux-aarch64' -o /usr/local/lib/docker/cli-plugins/docker-compose`,
       "chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose",
       "usermod -aG docker ec2-user",
       "systemctl enable --now docker",
+      "systemctl is-active --quiet docker || { echo 'Docker service did not become active' >&2; exit 1; }",
+      "command -v docker >/dev/null || { echo 'Docker executable is missing after installation' >&2; exit 1; }",
+      "docker info >/dev/null || { echo 'Docker daemon is not responding' >&2; exit 1; }",
+      "test \"$(docker info --format '{{.DockerRootDir}}')\" = /var/lib/docker || { echo 'Docker is not using the persistent data volume' >&2; exit 1; }",
       "docker compose version",
+      "aws --version",
+      "jq --version",
+      "flock --version",
+      "python3 --version",
       "mkdir -p /opt/liveorder",
       "chown ec2-user:ec2-user /opt/liveorder",
       "install -d -m 0700 /var/lib/docker/liveorder-restore-inbox",
@@ -339,8 +370,6 @@ export class LiveOrderStack extends Stack {
       "cat > /etc/systemd/system/liveorder-backup.timer <<'LIVEORDER_BACKUP_TIMER'",
       backupTimer,
       "LIVEORDER_BACKUP_TIMER",
-      "systemctl daemon-reload",
-      "systemctl enable --now liveorder-backup.timer",
       "cat > /usr/local/sbin/liveorder-restore-receiver <<'LIVEORDER_RESTORE_RECEIVER'",
       restoreReceiver,
       "LIVEORDER_RESTORE_RECEIVER",
@@ -349,6 +378,16 @@ export class LiveOrderStack extends Stack {
       restoreReceiverService,
       "LIVEORDER_RESTORE_SERVICE",
       "systemctl daemon-reload",
+      "systemctl enable --now liveorder-backup.timer",
+      "systemctl is-active --quiet liveorder-backup.timer || { echo 'LiveOrder backup timer did not become active' >&2; exit 1; }",
+      "for required_file in /etc/liveorder/compose.env /etc/liveorder/runtime-config /usr/local/sbin/liveorder-deploy /usr/local/sbin/liveorder-backup /usr/local/sbin/liveorder-sync-runtime-env /usr/local/sbin/liveorder-restore-receiver /etc/systemd/system/liveorder-backup.service /etc/systemd/system/liveorder-backup.timer; do",
+      "  test -s \"$required_file\" || { echo \"Required LiveOrder bootstrap file is missing: $required_file\" >&2; exit 1; }",
+      "done",
+      "test -x /usr/local/sbin/liveorder-deploy && test -x /usr/local/sbin/liveorder-backup && test -x /usr/local/sbin/liveorder-sync-runtime-env && test -x /usr/local/sbin/liveorder-restore-receiver || { echo 'A LiveOrder bootstrap helper is not executable' >&2; exit 1; }",
+      "install -d -m 0755 /var/lib/liveorder",
+      "printf 'ready\\n' > /var/lib/liveorder/bootstrap-ready",
+      "chmod 0644 /var/lib/liveorder/bootstrap-ready",
+      "echo 'LiveOrder instance bootstrap completed successfully.'",
     );
 
     const backupNotificationTopic = new sns.Topic(this, "BackupFailureTopic", {
