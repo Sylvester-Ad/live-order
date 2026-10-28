@@ -140,8 +140,10 @@ jobs:
       - name: Deploy release using AWS Systems Manager
         run: |
           compose_payload=$(base64 -w0 compose.yaml)
-          command="install -d -m 0755 /opt/liveorder && printf '%s' '$compose_payload' | base64 -d > /opt/liveorder/compose.yaml && chown ec2-user:ec2-user /opt/liveorder/compose.yaml && chmod 0644 /opt/liveorder/compose.yaml && /usr/local/sbin/liveorder-deploy '$GITHUB_SHA'"
-          parameters=$(jq -cn --arg command "$command" '{commands: [$command]}')
+          deploy_script_payload=$(base64 -w0 infrastructure/scripts/liveorder-deploy.sh)
+          install_command="install -d -m 0755 /usr/local/sbin && rm -f /run/liveorder-deploy-ready && script_tmp=\$(mktemp /usr/local/sbin/.liveorder-deploy.XXXXXX) && printf '%s' '$deploy_script_payload' | base64 -d > \"\$script_tmp\" && chmod 0750 \"\$script_tmp\" && mv -f \"\$script_tmp\" /usr/local/sbin/liveorder-deploy && printf '%s' '$GITHUB_SHA' > /run/liveorder-deploy-ready"
+          command="test \"\$(cat /run/liveorder-deploy-ready 2>/dev/null)\" = '$GITHUB_SHA' && rm -f /run/liveorder-deploy-ready && install -d -m 0755 /opt/liveorder && printf '%s' '$compose_payload' | base64 -d > /opt/liveorder/compose.yaml && chown ec2-user:ec2-user /opt/liveorder/compose.yaml && chmod 0644 /opt/liveorder/compose.yaml && /usr/local/sbin/liveorder-deploy '$GITHUB_SHA'"
+          parameters=$(jq -cn --arg installer "$install_command" --arg command "$command" '{commands: [$installer, $command]}')
           command_id=$(aws ssm send-command \
             --document-name AWS-RunShellScript \
             --instance-ids "$LIVEORDER_INSTANCE_ID" \
