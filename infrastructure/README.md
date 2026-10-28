@@ -99,13 +99,18 @@ aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs'
 ```
 
-Confirm the budget email and SNS email subscription. Create GitHub repository variables:
+Confirm the budget email and SNS email subscription. Create GitHub `production` Environment variables:
 
 - `AWS_REGION`: the stack region.
 - `AWS_DEPLOY_ROLE_ARN`: `GitHubDeploymentRoleArn` output.
 - `LIVEORDER_INSTANCE_ID`: `ApplicationInstanceId` output.
+- `LIVEORDER_BACKUP_BUCKET`: `BackupBucketName` output.
+- `LIVEORDER_SITE_ADDRESS`: the same configured value as `LIVEORDER_SITE_ADDRESS` in `infrastructure/.env` (for example `:80` or the real hostname).
+- `LIVEORDER_RUNTIME_SECRET_NAME`: the same configured value as `LIVEORDER_RUNTIME_SECRET_NAME` in `infrastructure/.env`.
 
 Create/protect the GitHub `production` Environment with approval and branch restrictions. The workflow at `.github/workflows/production.yml` validates pull requests and deploys on pushes to `main`; `workflow_dispatch` can deploy the selected ref subject to environment protection. No long-lived AWS credentials belong in GitHub secrets.
+
+Each deployment installs the checked-in deploy, backup, and runtime-sync helpers and writes `/etc/liveorder/compose.env` and `/etc/liveorder/runtime-config` over SSM. The bucket name comes from the CDK stack output; site address and runtime secret name must match the CDK configuration. These files contain infrastructure settings and a secret name only; Cloudinary secret values remain in Secrets Manager.
 
 ## Secrets, hostname, and first deployment
 
@@ -123,7 +128,7 @@ The instance helper `/usr/local/sbin/liveorder-sync-runtime-env` reads this secr
 
 For HTTPS, set `LIVEORDER_SITE_ADDRESS` to the actual hostname in the infrastructure `.env` before deployment and synthesis. After deployment, point the hostname's DNS A record at `ApplicationPublicIp`. Caddy obtains certificates automatically when DNS is correct and the public ports are reachable. Do not use a placeholder hostname in production. If changing the site address after deployment, update `/etc/liveorder/compose.env` through Session Manager and run the runtime sync helper before redeploying.
 
-The first successful workflow deployment publishes both images, transfers `compose.yaml` using SSM, synchronizes the runtime secret, applies `prisma migrate deploy` to the persistent SQLite path, starts both services, and waits for backend readiness and Caddy liveness. It does not create creator accounts. Provision creators manually in a private Session Manager shell:
+The first successful workflow deployment publishes both images, transfers the Compose file and host runtime configuration using SSM, installs the deployment/backup/runtime-sync helpers, synchronizes the runtime secret, applies `prisma migrate deploy` to the persistent SQLite path, starts both services, and waits for backend readiness and Caddy liveness. It does not create creator accounts. Provision creators manually in a private Session Manager shell:
 
 ```sh
 sudo docker compose --env-file /opt/liveorder/.env -f /opt/liveorder/compose.yaml \

@@ -90,6 +90,9 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       LIVEORDER_INSTANCE_ID: ${{ vars.LIVEORDER_INSTANCE_ID }}
+      LIVEORDER_BACKUP_BUCKET: ${{ vars.LIVEORDER_BACKUP_BUCKET }}
+      LIVEORDER_SITE_ADDRESS: ${{ vars.LIVEORDER_SITE_ADDRESS }}
+      LIVEORDER_RUNTIME_SECRET_NAME: ${{ vars.LIVEORDER_RUNTIME_SECRET_NAME }}
     steps:
       - uses: actions/checkout@v4
       - name: Check deployment configuration
@@ -97,6 +100,10 @@ jobs:
           test -n "$AWS_REGION" || { echo "Set the AWS_REGION repository variable."; exit 1; }
           test -n "$LIVEORDER_INSTANCE_ID" || { echo "Set LIVEORDER_INSTANCE_ID from the CDK output."; exit 1; }
           [[ "$LIVEORDER_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]] || { echo "LIVEORDER_INSTANCE_ID is not a valid EC2 instance ID."; exit 1; }
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || { echo "AWS_REGION is invalid."; exit 1; }
+          [[ "$LIVEORDER_BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || { echo "Set LIVEORDER_BACKUP_BUCKET from the CDK BackupBucketName output."; exit 1; }
+          [[ "$LIVEORDER_SITE_ADDRESS" =~ ^(:80|([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(:[0-9]{1,5})?)$ ]] || { echo "Set LIVEORDER_SITE_ADDRESS to the configured site address."; exit 1; }
+          [[ "$LIVEORDER_RUNTIME_SECRET_NAME" =~ ^[A-Za-z0-9/_+=.@-]{1,512}$ ]] || { echo "Set LIVEORDER_RUNTIME_SECRET_NAME to the configured Secrets Manager secret name."; exit 1; }
       
       - name: Debug GitHub OIDC claims
         uses: actions/github-script@v7
@@ -140,8 +147,19 @@ jobs:
       - name: Deploy release using AWS Systems Manager
         run: |
           compose_payload=$(base64 -w0 compose.yaml)
-          deploy_script_payload=$(base64 -w0 infrastructure/scripts/liveorder-deploy.sh)
-          install_command="install -d -m 0755 /usr/local/sbin && rm -f /run/liveorder-deploy-ready && script_tmp=\$(mktemp /usr/local/sbin/.liveorder-deploy.XXXXXX) && printf '%s' '$deploy_script_payload' | base64 -d > \"\$script_tmp\" && chmod 0750 \"\$script_tmp\" && mv -f \"\$script_tmp\" /usr/local/sbin/liveorder-deploy && printf '%s' '$GITHUB_SHA' > /run/liveorder-deploy-ready"
+          host_files="$RUNNER_TEMP/liveorder-host-files"
+          mkdir -m 0700 "$host_files"
+          cp infrastructure/scripts/liveorder-deploy.sh "$host_files/liveorder-deploy"
+          cp infrastructure/scripts/liveorder-backup.sh "$host_files/liveorder-backup"
+          cp infrastructure/scripts/liveorder-sync-runtime-env.sh "$host_files/liveorder-sync-runtime-env"
+          printf "SECRET_ARN='%s'\nAWS_REGION='%s'\n" \
+            "$LIVEORDER_RUNTIME_SECRET_NAME" "$AWS_REGION" > "$host_files/runtime-config"
+          printf "AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\nLIVEORDER_BACKUP_BUCKET=%s\nLIVEORDER_BACKUP_PREFIX=liveorder/backups/sqlite\nLIVEORDER_BACKEND_REPOSITORY=%s/liveorder/backend\nLIVEORDER_CADDY_REPOSITORY=%s/liveorder/caddy\nSITE_ADDRESS=%s\nHTTP_PORT=80\nHTTPS_PORT=443\nLIVEORDER_RUNTIME_SECRET_NAME=%s\n" \
+            "$AWS_REGION" "$AWS_REGION" "$LIVEORDER_BACKUP_BUCKET" "$ECR_REGISTRY" "$ECR_REGISTRY" \
+            "$LIVEORDER_SITE_ADDRESS" "$LIVEORDER_RUNTIME_SECRET_NAME" > "$host_files/compose.env"
+          tar -czf "$RUNNER_TEMP/liveorder-host-files.tar.gz" -C "$host_files" .
+          host_files_payload=$(base64 -w0 "$RUNNER_TEMP/liveorder-host-files.tar.gz")
+          install_command="set -eu && rm -f /run/liveorder-deploy-ready && stage=\$(mktemp -d /run/liveorder-install.XXXXXX) && trap 'rm -rf \"\$stage\"' 0 && printf '%s' '$host_files_payload' | base64 -d > \"\$stage/host-files.tar.gz\" && tar -xzf \"\$stage/host-files.tar.gz\" -C \"\$stage\" && install -d -m 0755 /usr/local/sbin && install -d -m 0750 /etc/liveorder && install -m 0750 \"\$stage/liveorder-deploy\" /usr/local/sbin/liveorder-deploy && install -m 0750 \"\$stage/liveorder-backup\" /usr/local/sbin/liveorder-backup && install -m 0750 \"\$stage/liveorder-sync-runtime-env\" /usr/local/sbin/liveorder-sync-runtime-env && install -m 0640 \"\$stage/runtime-config\" /etc/liveorder/runtime-config && install -m 0640 \"\$stage/compose.env\" /etc/liveorder/compose.env && printf '%s' '$GITHUB_SHA' > /run/liveorder-deploy-ready"
           command="test \"\$(cat /run/liveorder-deploy-ready 2>/dev/null)\" = '$GITHUB_SHA' && rm -f /run/liveorder-deploy-ready && install -d -m 0755 /opt/liveorder && printf '%s' '$compose_payload' | base64 -d > /opt/liveorder/compose.yaml && chown ec2-user:ec2-user /opt/liveorder/compose.yaml && chmod 0644 /opt/liveorder/compose.yaml && /usr/local/sbin/liveorder-deploy '$GITHUB_SHA'"
           parameters=$(jq -cn --arg installer "$install_command" --arg command "$command" '{commands: [$installer, $command]}')
           command_id=$(aws ssm send-command \

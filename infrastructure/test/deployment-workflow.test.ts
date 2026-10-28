@@ -10,18 +10,32 @@ const workflow = await readFile(
   "utf8",
 );
 
-test("installs the checked-in deployment script over SSM before invoking it", () => {
+test("installs host runtime configuration and deployment helpers over SSM before invoking them", () => {
+  assert.match(workflow, /LIVEORDER_BACKUP_BUCKET: \$\{\{ vars\.LIVEORDER_BACKUP_BUCKET \}\}/);
+  assert.match(workflow, /LIVEORDER_SITE_ADDRESS: \$\{\{ vars\.LIVEORDER_SITE_ADDRESS \}\}/);
+  assert.match(workflow, /LIVEORDER_RUNTIME_SECRET_NAME: \$\{\{ vars\.LIVEORDER_RUNTIME_SECRET_NAME \}\}/);
+  assert.match(workflow, /Set LIVEORDER_BACKUP_BUCKET from the CDK BackupBucketName output/);
+  assert.match(workflow, /Set LIVEORDER_SITE_ADDRESS to the configured site address/);
+  assert.match(workflow, /Set LIVEORDER_RUNTIME_SECRET_NAME to the configured Secrets Manager secret name/);
   assert.match(
     workflow,
-    /deploy_script_payload=\$\(base64 -w0 infrastructure\/scripts\/liveorder-deploy\.sh\)/,
+    /cp infrastructure\/scripts\/liveorder-deploy\.sh "\$host_files\/liveorder-deploy"/,
   );
   assert.match(
     workflow,
-    /install_command=.*mktemp \/usr\/local\/sbin\/\.liveorder-deploy\.XXXXXX.*base64 -d.*chmod 0750.*mv -f.*\/usr\/local\/sbin\/liveorder-deploy/,
+    /cp infrastructure\/scripts\/liveorder-backup\.sh "\$host_files\/liveorder-backup"/,
   );
   assert.match(
     workflow,
-    /test .*\/run\/liveorder-deploy-ready.*install -d -m 0755 \/opt\/liveorder.*\/usr\/local\/sbin\/liveorder-deploy '\$GITHUB_SHA'/,
+    /cp infrastructure\/scripts\/liveorder-sync-runtime-env\.sh "\$host_files\/liveorder-sync-runtime-env"/,
   );
+  assert.match(workflow, /LIVEORDER_BACKUP_BUCKET=%s/);
+  assert.match(workflow, /LIVEORDER_BACKUP_PREFIX=liveorder\/backups\/sqlite/);
+  assert.match(workflow, /LIVEORDER_BACKEND_REPOSITORY=%s\/liveorder\/backend/);
+  assert.match(workflow, /LIVEORDER_CADDY_REPOSITORY=%s\/liveorder\/caddy/);
+  assert.match(workflow, /LIVEORDER_RUNTIME_SECRET_NAME=%s/);
+  assert.match(workflow, /install -m 0640.*\/etc\/liveorder\/compose\.env/);
+  assert.match(workflow, /install -m 0640.*\/etc\/liveorder\/runtime-config/);
+  assert.match(workflow, /test .*\/run\/liveorder-deploy-ready.*\/usr\/local\/sbin\/liveorder-deploy '\$GITHUB_SHA'/);
   assert.match(workflow, /\{commands: \[\$installer, \$command\]\}/);
 });
