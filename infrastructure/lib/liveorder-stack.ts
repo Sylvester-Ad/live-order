@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   ArnFormat,
@@ -17,24 +16,11 @@ import {
   aws_iam as iam,
   aws_logs as logs,
   aws_s3 as s3,
+  aws_s3_assets as s3_assets,
   aws_secretsmanager as secretsmanager,
   aws_sns as sns,
 } from "aws-cdk-lib";
 import { Construct } from "constructs";
-
-const backupScript = readFileSync(new URL("../scripts/liveorder-backup.sh", import.meta.url), "utf8").trimEnd();
-const deploymentScript = readFileSync(new URL("../scripts/liveorder-deploy.sh", import.meta.url), "utf8").trimEnd();
-const runtimeSyncScript = readFileSync(
-  new URL("../scripts/liveorder-sync-runtime-env.sh", import.meta.url),
-  "utf8",
-).trimEnd();
-const backupService = readFileSync(new URL("../systemd/liveorder-backup.service", import.meta.url), "utf8").trimEnd();
-const backupTimer = readFileSync(new URL("../systemd/liveorder-backup.timer", import.meta.url), "utf8").trimEnd();
-const restoreReceiver = readFileSync(new URL("../scripts/liveorder-restore-receiver.py", import.meta.url), "utf8").trimEnd();
-const restoreReceiverService = readFileSync(
-  new URL("../systemd/liveorder-restore-receiver.service", import.meta.url),
-  "utf8",
-).trimEnd();
 
 export interface LiveOrderStackProps extends StackProps {
   readonly budgetEmail?: string;
@@ -49,6 +35,10 @@ export interface LiveOrderStackProps extends StackProps {
   readonly composeVersion: string;
   readonly runtimeSecretName: string;
   readonly siteAddress?: string;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 export class LiveOrderStack extends Stack {
@@ -186,6 +176,15 @@ export class LiveOrderStack extends Stack {
       resources: ["*"],
       conditions: { StringEquals: { "cloudwatch:namespace": "LiveOrder/Backups" } },
     }));
+    const bootstrapAsset = new s3_assets.Asset(this, "BootstrapAsset", {
+      path: fileURLToPath(new URL("../scripts", import.meta.url)),
+      exclude: ["__pycache__"],
+    });
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      sid: "ReadBootstrapAsset",
+      actions: ["s3:GetObject"],
+      resources: [bootstrapAsset.bucket.arnForObjects(bootstrapAsset.s3ObjectKey)],
+    }));
 
     const recoveryRole = new iam.Role(this, "BackupRecoveryRole", {
       roleName: "LiveOrderBackupRecovery",
@@ -217,7 +216,7 @@ export class LiveOrderStack extends Stack {
     securityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), "HTTPS for Caddy");
     securityGroup.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), "HTTPS for AWS APIs and application dependencies");
 
-    const instance = new ec2.Instance(this, "ApplicationInstance", {
+    const instance = new ec2.Instance(this, "ApplicationInstanceCleanStart", {
       vpc,
       vpcSubnets: { subnets: [vpc.publicSubnets[0]] },
       availabilityZone: vpc.publicSubnets[0].availabilityZone,
@@ -227,6 +226,7 @@ export class LiveOrderStack extends Stack {
       }),
       role: instanceRole,
       securityGroup,
+      userDataCausesReplacement: true,
       requireImdsv2: true,
       associatePublicIpAddress: true,
       blockDevices: [
@@ -249,146 +249,44 @@ export class LiveOrderStack extends Stack {
     };
     Tags.of(instance).add("LiveOrder:ManagedBy", "cdk");
 
-    const dataVolume = new ec2.Volume(this, "DockerDataVolume", {
+    const dataVolume = new ec2.Volume(this, "DockerDataVolumeCleanStartFresh", {
       availabilityZone: vpc.publicSubnets[0].availabilityZone,
       size: Size.gibibytes(props.dataVolumeGiB),
       volumeType: ec2.EbsDeviceVolumeType.GP3,
       encrypted: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
-    const dataVolumeAttachment = new ec2.CfnVolumeAttachment(this, "DockerDataVolumeAttachment", {
+    const dataVolumeAttachment = new ec2.CfnVolumeAttachment(this, "DockerDataVolumeAttachmentCleanStartFresh", {
       device: "/dev/sdf",
       instanceId: instance.instanceId,
       volumeId: dataVolume.volumeId,
     });
 
-    instance.addUserData(
+    const userData = [
       "set -Eeuo pipefail",
       "exec > >(tee -a /var/log/liveorder-bootstrap.log) 2>&1",
       "trap 'status=$?; echo \"LiveOrder bootstrap failed (status $status, line ${BASH_LINENO[0]}). See /var/log/liveorder-bootstrap.log and /var/log/cloud-init-output.log.\" >&2; exit \"$status\"' ERR",
       "echo 'Starting LiveOrder instance bootstrap.'",
-      "dnf install -y amazon-ec2-utils curl xfsprogs awscli jq util-linux python3",
-      "test -x /sbin/ebsnvme-id || { echo 'Required Amazon EBS NVMe utility is missing: /sbin/ebsnvme-id' >&2; exit 1; }",
-      "mkdir -p /var/lib/docker",
-      `DATA_VOLUME_ID='${dataVolume.volumeId}'`,
-      `INITIALIZE_DATA_VOLUME='${props.initializeDataVolume ? "true" : "false"}'`,
-      "DATA_DEVICE=''",
-      "for attempt in $(seq 1 60); do",
-      "  for candidate in /dev/nvme*n1; do",
-      "    [ -e \"$candidate\" ] || continue",
-      "    if /sbin/ebsnvme-id \"$candidate\" 2>/dev/null | grep -Fq \"Volume ID: $DATA_VOLUME_ID\"; then DATA_DEVICE=\"$candidate\"; break 2; fi",
-      "  done",
-      "  sleep 2",
-      "done",
-      "test -n \"$DATA_DEVICE\" || { echo 'LiveOrder data volume not found' >&2; exit 1; }",
-      "FILESYSTEM=$(blkid -s TYPE -o value \"$DATA_DEVICE\" || true)",
-      "if [ -z \"$FILESYSTEM\" ]; then",
-      "  if [ \"$INITIALIZE_DATA_VOLUME\" != true ]; then",
-      "    echo 'LiveOrder data volume has no recognized filesystem; refusing to format it. Set LIVEORDER_INITIALIZE_DATA_VOLUME=true only for a confirmed-new, empty volume.' >&2",
-      "    exit 1",
-      "  fi",
-      "  mkfs.xfs \"$DATA_DEVICE\"",
-      "  FILESYSTEM=xfs",
-      "fi",
-      "test \"$FILESYSTEM\" = xfs || { echo 'Unexpected filesystem on LiveOrder data volume' >&2; exit 1; }",
-      "DATA_UUID=$(blkid -s UUID -o value \"$DATA_DEVICE\")",
-      "grep -q \"UUID=$DATA_UUID /var/lib/docker \" /etc/fstab || echo \"UUID=$DATA_UUID /var/lib/docker xfs defaults,x-systemd.device-timeout=120s 0 2\" >> /etc/fstab",
-      "mount /var/lib/docker",
-      "mountpoint -q /var/lib/docker || { echo 'LiveOrder data volume is not mounted at /var/lib/docker' >&2; exit 1; }",
-      "test \"$(findmnt -rn -T /var/lib/docker -o FSTYPE)\" = xfs || { echo 'LiveOrder data volume mount is not XFS' >&2; exit 1; }",
-      "mkdir -p /etc/docker",
-      "cat > /etc/docker/daemon.json <<'DOCKER_CONFIG'",
-      JSON.stringify({
-        "log-driver": "awslogs",
-        "log-opts": {
-          "awslogs-region": this.region,
-          "awslogs-group": logGroup.logGroupName,
-          "awslogs-create-group": "false",
-          mode: "non-blocking",
-          "max-buffer-size": "4m",
-        },
-      }),
-      "DOCKER_CONFIG",
-      "install -d -m 0755 /etc/systemd/system/docker.service.d",
-      "cat > /etc/systemd/system/docker.service.d/10-liveorder-data-volume.conf <<'DOCKER_VOLUME_DEPENDENCY'",
-      "[Unit]",
-      "Requires=var-lib-docker.mount",
-      "After=var-lib-docker.mount",
-      "DOCKER_VOLUME_DEPENDENCY",
-      "systemctl daemon-reload",
-      "dnf install -y docker",
-      "install -d -m 0755 /usr/local/lib/docker/cli-plugins",
-      `curl --fail --silent --show-error --location --retry 3 'https://github.com/docker/compose/releases/download/v${props.composeVersion}/docker-compose-linux-aarch64' -o /usr/local/lib/docker/cli-plugins/docker-compose`,
-      "chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose",
-      "usermod -aG docker ec2-user",
-      "systemctl enable --now docker",
-      "systemctl is-active --quiet docker || { echo 'Docker service did not become active' >&2; exit 1; }",
-      "command -v docker >/dev/null || { echo 'Docker executable is missing after installation' >&2; exit 1; }",
-      "docker info >/dev/null || { echo 'Docker daemon is not responding' >&2; exit 1; }",
-      "test \"$(docker info --format '{{.DockerRootDir}}')\" = /var/lib/docker || { echo 'Docker is not using the persistent data volume' >&2; exit 1; }",
-      "docker compose version",
-      "aws --version",
-      "jq --version",
-      "flock --version",
-      "python3 --version",
-      "mkdir -p /opt/liveorder",
-      "chown ec2-user:ec2-user /opt/liveorder",
-      "install -d -m 0700 /var/lib/docker/liveorder-restore-inbox",
-      "install -d -m 0750 /etc/liveorder",
-      "cat > /etc/liveorder/runtime-config <<'LIVEORDER_RUNTIME_CONFIG'",
-      `SECRET_ARN='${runtimeSecret.ref}'`,
-      `AWS_REGION='${this.region}'`,
-      "LIVEORDER_RUNTIME_CONFIG",
-      "cat > /etc/liveorder/compose.env <<'LIVEORDER_BASE_ENV'",
-      `AWS_REGION=${this.region}`,
-      `AWS_DEFAULT_REGION=${this.region}`,
-      `LIVEORDER_BACKUP_BUCKET=${backupBucket.bucketName}`,
-      "LIVEORDER_BACKUP_PREFIX=liveorder/backups/sqlite",
-      `LIVEORDER_BACKEND_REPOSITORY=${backendRepository.repositoryUri}`,
-      `LIVEORDER_CADDY_REPOSITORY=${caddyRepository.repositoryUri}`,
-      `SITE_ADDRESS=${props.siteAddress ?? ":80"}`,
-      "HTTP_PORT=80",
-      "HTTPS_PORT=443",
-      `LIVEORDER_RUNTIME_SECRET_NAME=${props.runtimeSecretName}`,
-      "LIVEORDER_BASE_ENV",
-      "chmod 0640 /etc/liveorder/runtime-config /etc/liveorder/compose.env",
-      "cat > /usr/local/sbin/liveorder-sync-runtime-env <<'LIVEORDER_SYNC_SCRIPT'",
-      runtimeSyncScript,
-      "LIVEORDER_SYNC_SCRIPT",
-      "chmod 0750 /usr/local/sbin/liveorder-sync-runtime-env",
-      "cat > /usr/local/sbin/liveorder-backup <<'LIVEORDER_BACKUP_SCRIPT'",
-      backupScript,
-      "LIVEORDER_BACKUP_SCRIPT",
-      "chmod 0750 /usr/local/sbin/liveorder-backup",
-      "cat > /usr/local/sbin/liveorder-deploy <<'LIVEORDER_DEPLOY_SCRIPT'",
-      deploymentScript,
-      "LIVEORDER_DEPLOY_SCRIPT",
-      "chmod 0750 /usr/local/sbin/liveorder-deploy",
-      "cat > /etc/systemd/system/liveorder-backup.service <<'LIVEORDER_BACKUP_SERVICE'",
-      backupService,
-      "LIVEORDER_BACKUP_SERVICE",
-      "cat > /etc/systemd/system/liveorder-backup.timer <<'LIVEORDER_BACKUP_TIMER'",
-      backupTimer,
-      "LIVEORDER_BACKUP_TIMER",
-      "cat > /usr/local/sbin/liveorder-restore-receiver <<'LIVEORDER_RESTORE_RECEIVER'",
-      restoreReceiver,
-      "LIVEORDER_RESTORE_RECEIVER",
-      "chmod 0750 /usr/local/sbin/liveorder-restore-receiver",
-      "cat > /etc/systemd/system/liveorder-restore-receiver.service <<'LIVEORDER_RESTORE_SERVICE'",
-      restoreReceiverService,
-      "LIVEORDER_RESTORE_SERVICE",
-      "systemctl daemon-reload",
-      "systemctl enable --now liveorder-backup.timer",
-      "systemctl is-active --quiet liveorder-backup.timer || { echo 'LiveOrder backup timer did not become active' >&2; exit 1; }",
-      "for required_file in /etc/liveorder/compose.env /etc/liveorder/runtime-config /usr/local/sbin/liveorder-deploy /usr/local/sbin/liveorder-backup /usr/local/sbin/liveorder-sync-runtime-env /usr/local/sbin/liveorder-restore-receiver /etc/systemd/system/liveorder-backup.service /etc/systemd/system/liveorder-backup.timer; do",
-      "  test -s \"$required_file\" || { echo \"Required LiveOrder bootstrap file is missing: $required_file\" >&2; exit 1; }",
-      "done",
-      "test -x /usr/local/sbin/liveorder-deploy && test -x /usr/local/sbin/liveorder-backup && test -x /usr/local/sbin/liveorder-sync-runtime-env && test -x /usr/local/sbin/liveorder-restore-receiver || { echo 'A LiveOrder bootstrap helper is not executable' >&2; exit 1; }",
-      "install -d -m 0755 /var/lib/liveorder",
-      "printf 'ready\\n' > /var/lib/liveorder/bootstrap-ready",
-      "chmod 0644 /var/lib/liveorder/bootstrap-ready",
-      "echo 'LiveOrder instance bootstrap completed successfully.'",
-    );
+      "export LIVEORDER_BOOTSTRAP_LOG_REDIRECTED=true",
+      "dnf install -y awscli unzip",
+      "BOOTSTRAP_ASSET=/opt/liveorder-bootstrap",
+      "install -d -m 0700 \"$BOOTSTRAP_ASSET\"",
+      `aws s3 cp 's3://${bootstrapAsset.s3BucketName}/${bootstrapAsset.s3ObjectKey}' \"$BOOTSTRAP_ASSET/assets.zip\"`,
+      "unzip -oq \"$BOOTSTRAP_ASSET/assets.zip\" -d \"$BOOTSTRAP_ASSET\"",
+      `export LIVEORDER_DATA_VOLUME_ID=${shellQuote(dataVolume.volumeId)}`,
+      `export LIVEORDER_INITIALIZE_DATA_VOLUME=${shellQuote(props.initializeDataVolume ? "true" : "false")}`,
+      `export AWS_REGION=${shellQuote(this.region)}`,
+      `export LIVEORDER_LOG_GROUP=${shellQuote(logGroup.logGroupName)}`,
+      `export LIVEORDER_RUNTIME_SECRET_ARN=${shellQuote(runtimeSecret.ref)}`,
+      `export LIVEORDER_BACKUP_BUCKET=${shellQuote(backupBucket.bucketName)}`,
+      `export LIVEORDER_BACKEND_REPOSITORY=${shellQuote(backendRepository.repositoryUri)}`,
+      `export LIVEORDER_CADDY_REPOSITORY=${shellQuote(caddyRepository.repositoryUri)}`,
+      `export LIVEORDER_SITE_ADDRESS=${shellQuote(props.siteAddress ?? ":80")}`,
+      `export LIVEORDER_RUNTIME_SECRET_NAME=${shellQuote(props.runtimeSecretName)}`,
+      `export LIVEORDER_COMPOSE_VERSION=${shellQuote(props.composeVersion)}`,
+      "exec bash \"$BOOTSTRAP_ASSET/liveorder-bootstrap.sh\"",
+    ];
+    instance.addUserData(...userData);
 
     const backupNotificationTopic = new sns.Topic(this, "BackupFailureTopic", {
       topicName: "LiveOrderBackupFailures",

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { App } from "aws-cdk-lib";
@@ -22,6 +23,29 @@ function synthTemplate(githubOidcProviderArn?: string, initializeDataVolume = fa
     githubOidcProviderArn,
   });
   return Template.fromStack(stack);
+}
+
+function encodedUserDataSize(instance: Record<string, unknown>): number {
+  const userData = instance.Properties as {
+    UserData?: {
+      "Fn::Base64"?: {
+        "Fn::Join"?: [string, unknown[]];
+      };
+    };
+  } | undefined;
+  const joinedParts = userData?.UserData?.["Fn::Base64"]?.["Fn::Join"];
+  assert.ok(joinedParts, "Expected EC2 user data to use Fn::Base64 and Fn::Join");
+
+  const renderPart = (part: unknown): string => {
+    if (typeof part === "string") return part;
+    if (typeof part !== "object" || part === null) return "";
+    const join = (part as { "Fn::Join"?: [string, unknown[]] })["Fn::Join"];
+    // Reserve room for unresolved CloudFormation values when bounding encoded user-data size.
+    if (!join) return "x".repeat(256);
+    return join[1].map(renderPart).join(join[0]);
+  };
+  const userDataText = joinedParts[1].map(renderPart).join(joinedParts[0]);
+  return Buffer.byteLength(Buffer.from(userDataText).toString("base64"), "utf8");
 }
 
 test("provisions a cost-conscious VPC with no NAT gateway and a single instance", () => {
@@ -70,28 +94,47 @@ test("publishes only HTTP and HTTPS ingress", () => {
   });
 });
 
-test("uses an encrypted retained data volume and provisions Docker Compose", () => {
-  const template = synthTemplate();
+test("creates a fresh encrypted data volume and provisions Docker Compose", () => {
+  const template = synthTemplate(undefined, true);
   template.hasResourceProperties("AWS::EC2::Volume", {
     Encrypted: true,
     Size: 30,
     VolumeType: "gp3",
   });
   template.hasResource("AWS::EC2::Volume", {
-    DeletionPolicy: "Retain",
+    DeletionPolicy: "Delete",
+    UpdateReplacePolicy: "Delete",
   });
   template.resourceCountIs("AWS::EC2::VolumeAttachment", 1);
-  template.hasResourceProperties("AWS::EC2::VolumeAttachment", {
+  const resources = (template.toJSON() as {
+    Resources: Record<string, { Type: string; Properties?: Record<string, unknown> }>;
+  }).Resources;
+  const instanceId = Object.entries(resources).find(([logicalId, resource]) =>
+    resource.Type === "AWS::EC2::Instance" && logicalId.startsWith("ApplicationInstanceCleanStart"))?.[0];
+  const volumeId = Object.entries(resources).find(([logicalId, resource]) =>
+    resource.Type === "AWS::EC2::Volume" && logicalId.startsWith("DockerDataVolumeCleanStartFresh"))?.[0];
+  const attachmentId = Object.entries(resources).find(([logicalId, resource]) =>
+    resource.Type === "AWS::EC2::VolumeAttachment"
+      && logicalId.startsWith("DockerDataVolumeAttachmentCleanStartFresh"))?.[0];
+  assert.ok(instanceId, "Expected the clean-start EC2 instance");
+  assert.ok(volumeId, "Expected a new clean-start data volume identity");
+  assert.ok(attachmentId, "Expected a new clean-start volume attachment identity");
+  assert.notEqual(volumeId, "DockerDataVolumeCleanStartEBEF200D");
+  assert.notEqual(attachmentId, "DockerDataVolumeAttachmentCleanStart");
+  assert.equal(resources.DockerDataVolumeCleanStartEBEF200D, undefined);
+  assert.equal(resources.DockerDataVolumeAttachmentCleanStart, undefined);
+  const attachment = resources[attachmentId];
+  assert.deepEqual(attachment.Properties, {
     Device: "/dev/sdf",
-    InstanceId: Match.objectLike({ Ref: Match.anyValue() }),
-    VolumeId: Match.objectLike({ Ref: Match.anyValue() }),
+    InstanceId: { Ref: instanceId },
+    VolumeId: { Ref: volumeId },
   });
   template.hasResourceProperties("AWS::EC2::Instance", {
     UserData: Match.objectLike({
       "Fn::Base64": Match.objectLike({
         "Fn::Join": Match.arrayWith([
           Match.arrayWith([
-            Match.stringLikeRegexp("docker-compose-linux-aarch64"),
+            Match.stringLikeRegexp("aws s3 cp"),
           ]),
         ]),
       }),
@@ -100,33 +143,59 @@ test("uses an encrypted retained data volume and provisions Docker Compose", () 
   const instance = Object.values(template.findResources("AWS::EC2::Instance"))[0];
   const userData = JSON.stringify(instance?.Properties?.UserData);
   assert.match(userData, /liveorder-bootstrap\.log/);
-  assert.match(userData, /instance bootstrap completed successfully/);
-  assert.match(userData, /docker info/);
-  assert.match(userData, /dnf install -y docker/);
-  assert.match(userData, /amazon-ec2-utils/);
-  assert.match(userData, /docker-compose-linux-aarch64/);
-  assert.match(userData, /Requires=var-lib-docker\.mount/);
-  assert.match(userData, /refusing to format it/);
-  assert.match(userData, /INITIALIZE_DATA_VOLUME='false'/);
-  assert.match(userData, /bootstrap-ready/);
-  assert.doesNotMatch(userData, /defaults,nofail/);
-  assert.ok(userData.indexOf("mount /var/lib/docker") < userData.indexOf("dnf install -y docker"));
-  assert.ok(userData.indexOf("Requires=var-lib-docker.mount") < userData.indexOf("dnf install -y docker"));
+  assert.match(userData, /aws s3 cp/);
+  assert.match(userData, /liveorder-bootstrap\.sh/);
+  assert.match(userData, /INITIALIZE_DATA_VOLUME='true'/);
+  assert.match(userData, new RegExp(volumeId));
+  const encodedBytes = encodedUserDataSize(instance);
+  assert.ok(encodedBytes < 20_000, `Encoded EC2 user data is ${encodedBytes} bytes`);
+  assert.ok(encodedBytes < 25_600, `Encoded EC2 user data exceeds 25,600 bytes: ${encodedBytes}`);
+});
+
+test("grants the instance role read access to bootstrap assets only", () => {
+  const template = synthTemplate();
+  const policies = Object.values(template.findResources("AWS::IAM::Policy"));
+  const bootstrapRead = policies.flatMap((policy) => {
+    const properties = policy.Properties as {
+      PolicyDocument?: { Statement?: Array<Record<string, unknown>> };
+    } | undefined;
+    return properties?.PolicyDocument?.Statement ?? [];
+  }).find((statement) => statement.Sid === "ReadBootstrapAsset");
+  assert.ok(bootstrapRead, "Expected a scoped S3 read permission for the bootstrap asset");
+  assert.deepEqual(bootstrapRead.Action, "s3:GetObject");
+  const resource = JSON.stringify(bootstrapRead.Resource);
+  assert.match(resource, /\.zip/);
+  assert.doesNotMatch(resource, /:\*"/);
 });
 
 test("synthesized bootstrap script is valid Bash and formats only with explicit opt-in", () => {
-  const instance = Object.values(synthTemplate(undefined, true).findResources("AWS::EC2::Instance"))[0];
-  const userData = instance?.Properties?.UserData as {
-    "Fn::Base64"?: { "Fn::Join"?: [string, unknown[]] };
-  } | undefined;
-  const joinedParts = userData?.["Fn::Base64"]?.["Fn::Join"]?.[1];
-  assert.ok(joinedParts);
-  const script = joinedParts
-    .map((part) => typeof part === "string" ? part : "test-volume-id")
-    .join("");
+  const script = readFileSync(new URL("../scripts/liveorder-bootstrap.sh", import.meta.url), "utf8");
   const syntaxCheck = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
   assert.equal(syntaxCheck.status, 0, syntaxCheck.stderr);
-  assert.match(script, /INITIALIZE_DATA_VOLUME='true'/);
+  const defaultUserData = JSON.stringify(
+    Object.values(synthTemplate().findResources("AWS::EC2::Instance"))[0]?.Properties?.UserData,
+  );
+  assert.match(defaultUserData, /LIVEORDER_INITIALIZE_DATA_VOLUME='false'/);
+  assert.match(script, /\[\[ "\$LIVEORDER_INITIALIZE_DATA_VOLUME" == true \]\]/);
+  assert.match(script, /wipefs --no-act --noheadings/);
+  assert.match(script, /refusing to format it/);
+  assert.equal((script.match(/mkfs\.xfs "\$DATA_DEVICE"/g) ?? []).length, 1);
+  assert.ok(script.indexOf("mount /var/lib/docker") < script.indexOf("dnf install -y docker"));
+  assert.ok(script.indexOf("Requires=var-lib-docker.mount") < script.indexOf("dnf install -y docker"));
+  assert.match(script, /dnf install -y amazon-ec2-utils xfsprogs awscli jq util-linux python3/);
+  assert.doesNotMatch(script, /dnf install[^\n]*\bcurl\b/);
+  assert.match(script, /command -v curl >\/dev\/null/);
+  for (const requiredContent of [
+    "amazon-ec2-utils",
+    "docker info",
+    "docker compose version",
+    "/etc/liveorder/runtime-config",
+    "/etc/liveorder/compose.env",
+    "liveorder-backup.timer",
+    "bootstrap-ready",
+  ]) {
+    assert.ok(script.includes(requiredContent), `Bootstrap is missing requirement: ${requiredContent}`);
+  }
 });
 
 test("creates a private versioned S3 backup bucket with 90-day lifecycle", () => {
@@ -199,17 +268,9 @@ test("creates a runtime secret and grants the instance role read access", () => 
       ]),
     },
   });
-  template.hasResourceProperties("AWS::EC2::Instance", {
-    UserData: Match.objectLike({
-      "Fn::Base64": Match.objectLike({
-        "Fn::Join": Match.arrayWith([
-          Match.arrayWith([
-            Match.stringLikeRegexp("liveorder-sync-runtime-env"),
-          ]),
-        ]),
-      }),
-    }),
-  });
+  const bootstrapScript = readFileSync(new URL("../scripts/liveorder-bootstrap.sh", import.meta.url), "utf8");
+  assert.match(bootstrapScript, /LIVEORDER_RUNTIME_SECRET_ARN/);
+  assert.match(bootstrapScript, /liveorder-sync-runtime-env\.sh/);
 });
 
 test("scopes backup writes to the application prefix and provides separate read-only recovery access", () => {
@@ -362,7 +423,14 @@ test("grants instance pull and GitHub push access only to the two image reposito
 
 test("installs a daily serialized backup timer and alarms on backup failures", () => {
   const template = synthTemplate();
-  const rendered = JSON.stringify(template.toJSON());
+  const rendered = [
+    "liveorder-bootstrap.sh",
+    "liveorder-backup.sh",
+    "liveorder-restore-receiver.py",
+    "liveorder-backup.service",
+    "liveorder-backup.timer",
+    "liveorder-restore-receiver.service",
+  ].map((file) => readFileSync(new URL(`../scripts/${file}`, import.meta.url), "utf8")).join("\n");
   assert.match(rendered, /OnCalendar=\*-\*-\* 02:15:00 UTC/);
   assert.match(rendered, /liveorder-backup\.timer/);
   assert.match(rendered, /liveorder-backup\.lock/);

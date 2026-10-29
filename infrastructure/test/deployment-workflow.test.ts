@@ -38,4 +38,10 @@ test("installs host runtime configuration and deployment helpers over SSM before
   assert.match(workflow, /install -m 0640.*\/etc\/liveorder\/runtime-config/);
   assert.match(workflow, /test .*\/run\/liveorder-deploy-ready.*\/usr\/local\/sbin\/liveorder-deploy '\$GITHUB_SHA'/);
   assert.match(workflow, /\{commands: \[\$installer, \$command\]\}/);
+  const composeEnvironmentInstall = workflow.indexOf('install -m 0640 \\"\\$stage/compose.env\\" /etc/liveorder/compose.env');
+  const deployReadyMarker = workflow.indexOf("printf '%s' '$GITHUB_SHA' > /run/liveorder-deploy-ready");
+  const invokeDeployHelper = workflow.indexOf("&& /usr/local/sbin/liveorder-deploy '$GITHUB_SHA'");
+  assert.ok(composeEnvironmentInstall >= 0);
+  assert.ok(deployReadyMarker > composeEnvironmentInstall);
+  assert.ok(invokeDeployHelper > deployReadyMarker);
 });
