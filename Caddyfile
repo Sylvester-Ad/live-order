@@ -1,3 +1,11 @@
+http://www.liveorder.site {
+	redir https://liveorder.site{uri} permanent
+}
+
+https://www.liveorder.site {
+	redir https://liveorder.site{uri} permanent
+}
+
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
 
