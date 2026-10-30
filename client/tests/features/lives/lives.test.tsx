@@ -138,7 +138,7 @@ describe("seller Live management", () => {
     const clipboardWrite = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: clipboardWrite } });
     vi.stubGlobal("fetch", authenticatedFetch([activeLive]));
-    renderPath("/");
+    renderPath("/lives");
 
     expect(await screen.findByRole("link", { name: "Open storefront" })).toHaveAttribute("href", expect.stringContaining("/live/friday-fashion-a1b2c3d4"));
     expect(screen.getByRole("link", { name: "Open TikTok LIVE" })).toHaveAttribute("href", activeLive.tiktokLiveUrl);
@@ -154,7 +154,7 @@ describe("seller Live management", () => {
       value: { writeText: vi.fn().mockRejectedValue(new Error("Permission denied")) },
     });
     vi.stubGlobal("fetch", authenticatedFetch([{ ...draftLive, status: "ACTIVE" }]));
-    renderPath("/");
+    renderPath("/lives");
 
     fireEvent.click(await screen.findByRole("button", { name: "Copy storefront link" }));
     expect(await screen.findByText("Couldn't copy the storefront link. Select and copy the URL from the Live workspace.")).toBeInTheDocument();

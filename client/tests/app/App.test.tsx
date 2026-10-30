@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -104,8 +104,10 @@ describe("application routes", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByRole("heading", { name: "Your selling workspace" })).toBeInTheDocument();
-    expect(await screen.findByText("Friday Fashion Live")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Welcome back, Ama" })).toBeInTheDocument();
+    const activeSessions = await screen.findByRole("region", { name: "Active selling sessions" });
+    expect(within(activeSessions).getByRole("link", { name: "Open Friday Fashion Live workspace" }))
+      .toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 
