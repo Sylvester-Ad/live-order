@@ -133,9 +133,6 @@ export function LoginPage() {
               </form>
             </CardContent>
           </Card>
-          <p className="mt-6 text-center text-xs leading-5 text-ink-muted">
-            Your session stays on this device using a secure, HTTP-only cookie.
-          </p>
         </div>
       </section>
     </main>

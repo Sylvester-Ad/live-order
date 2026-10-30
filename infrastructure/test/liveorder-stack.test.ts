@@ -63,6 +63,11 @@ test("provisions a cost-conscious VPC with no NAT gateway and a single instance"
   });
 });
 
+test("does not force EC2 replacement when user data changes", () => {
+  const stackSource = readFileSync(new URL("../lib/liveorder-stack.ts", import.meta.url), "utf8");
+  assert.match(stackSource, /userDataCausesReplacement:\s*false/);
+});
+
 test("publishes only HTTP and HTTPS ingress", () => {
   const template = synthTemplate();
   template.hasResourceProperties("AWS::EC2::SecurityGroup", {

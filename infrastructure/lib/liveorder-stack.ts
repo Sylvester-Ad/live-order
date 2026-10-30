@@ -226,7 +226,7 @@ export class LiveOrderStack extends Stack {
       }),
       role: instanceRole,
       securityGroup,
-      userDataCausesReplacement: true,
+      userDataCausesReplacement: false,
       requireImdsv2: true,
       associatePublicIpAddress: true,
       blockDevices: [
