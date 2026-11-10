@@ -9,12 +9,12 @@ export const productsApi = {
   list(liveId: string, signal?: AbortSignal) {
     return api.get<Product[]>(`/v1/lives/${encodeURIComponent(liveId)}/products`, { signal });
   },
-  create(liveId: string, input: CreateProductInput, image?: File) {
-    if (!image) return api.post<Product>(`/v1/lives/${encodeURIComponent(liveId)}/products`, input);
-    const form = new FormData();
-    form.append("product", JSON.stringify(input));
-    form.append("image", image);
-    return api.post<Product>(`/v1/lives/${encodeURIComponent(liveId)}/products`, form);
+  create(liveId: string, input: CreateProductInput, idempotencyKey: string) {
+    return api.post<Product>(
+      `/v1/lives/${encodeURIComponent(liveId)}/products`,
+      input,
+      { headers: { "Idempotency-Key": idempotencyKey } },
+    );
   },
   update(liveId: string, productId: string, input: UpdateProductInput) {
     return api.patch<Product>(

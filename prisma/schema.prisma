@@ -30,7 +30,8 @@ model Creator {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  lives Live[]
+  lives                   Live[]
+  productCreationRequests ProductCreationRequest[]
 }
 
 model CreatorSession {
@@ -56,9 +57,10 @@ model Live {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  creator  Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  products Product[]
-  orders   Order[]
+  creator                 Creator                  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  products                Product[]
+  orders                  Order[]
+  productCreationRequests ProductCreationRequest[]
 
   @@index([creatorId])
 }
@@ -73,11 +75,28 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  live       Live           @relation(fields: [liveId], references: [id], onDelete: Cascade)
-  orderItems OrderItem[]
-  images     ProductImage[]
+  live                   Live                    @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  orderItems             OrderItem[]
+  images                 ProductImage[]
+  productCreationRequest ProductCreationRequest?
 
   @@index([liveId])
+}
+
+model ProductCreationRequest {
+  id                 String   @id @default(uuid())
+  idempotencyKey     String   @unique
+  creatorId          String
+  liveId             String
+  requestFingerprint String
+  productId          String?  @unique
+  createdAt          DateTime @default(now())
+
+  creator Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  live    Live     @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([creatorId, liveId])
 }
 
 model ProductImage {

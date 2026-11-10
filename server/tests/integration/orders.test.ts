@@ -6,6 +6,12 @@ import { prisma } from "../../src/database/prisma.js";
 import { hashAccessCode } from "../../src/shared/utils/credentials.js";
 import { resetTestDatabase } from "../helpers/test-database.js";
 
+function createProductRequest(liveId: string) {
+  return request(app)
+    .post(`/api/v1/lives/${liveId}/products`)
+    .set("Idempotency-Key", randomUUID());
+}
+
 describe("Orders API", () => {
   let cookie: string;
   let liveId: string;
@@ -51,8 +57,7 @@ describe("Orders API", () => {
 
     expect(activationResponse.status).toBe(200);
 
-    const tShirtResponse = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const tShirtResponse = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({
         name: "Classic T-shirt",
@@ -67,8 +72,7 @@ describe("Orders API", () => {
     expect(tShirtResponse.status).toBe(201);
     tShirtId = tShirtResponse.body.data.id;
 
-    const capResponse = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const capResponse = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({
         name: "Baseball Cap",
@@ -185,8 +189,7 @@ describe("Orders API", () => {
 
     expect(otherLiveResponse.status).toBe(201);
 
-    const otherProductResponse = await request(app)
-      .post(`/api/v1/lives/${otherLiveResponse.body.data.id}/products`)
+    const otherProductResponse = await createProductRequest(otherLiveResponse.body.data.id)
       .set("Cookie", cookie)
       .send({
         name: "Another Product",

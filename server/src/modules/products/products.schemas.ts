@@ -26,6 +26,8 @@ const productOptionsSchema = z.record(
 const stockQuantitySchema = z.number().int().min(0).max(2_147_483_647);
 const productPriceSchema = z.number().int().positive().max(2_147_483_647);
 
+export const productCreationIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
+
 export const createProductSchema = z.object({
   name: z.string().trim().min(1).max(100),
   price: productPriceSchema,

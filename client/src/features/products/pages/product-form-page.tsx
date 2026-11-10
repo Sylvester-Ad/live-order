@@ -6,13 +6,22 @@ import { PageHeader } from "../../../components/layout/page-header";
 import { Button } from "../../../components/ui/button";
 import { ConfirmationDialog } from "../../../components/ui/confirmation-dialog";
 import { TextField } from "../../../components/ui/text-field";
-import { ApiError } from "../../../lib/api-client";
+import { ApiError, TransportError } from "../../../lib/api-client";
 import { parseCedisToPesewas, pesewasToCedisInput } from "../../../lib/product-price";
 import { parseProductOptions, readProductOptionGroups, type ProductOptionGroup } from "../../../lib/product-options";
+import { useCurrentCreator } from "../../auth/hooks/use-auth";
 import { useLives } from "../../lives/hooks/use-lives";
 import type { Product } from "../api/products-api";
 import { ProductOptionsEditor } from "../components/product-options-editor";
 import { ProductImageField } from "../components/product-image-field";
+import {
+  clearPendingProductCreation,
+  createProductCreationKey,
+  loadPendingProductCreation,
+  PendingProductCreationStorageError,
+  savePendingProductCreation,
+  type PendingProductCreation,
+} from "../lib/pending-product-creation";
 import {
   useCreateProduct,
   useProducts,
@@ -23,9 +32,12 @@ import {
 
 export function ProductFormPage() {
   const { liveId = "", productId } = useParams();
+  const creator = useCurrentCreator();
   const lives = useLives();
   const products = useProducts(liveId, { enabled: Boolean(productId) });
 
+  if (creator.isPending) return <LoadingState label="Restoring your seller session…" />;
+  if (creator.isError || !creator.data) return <RequestFailure label="We couldn't verify your seller session." onRetry={() => void creator.refetch()} />;
   if (lives.isPending) {
     return <LoadingState label={productId ? "Loading product…" : "Loading this Live…"} />;
   }
@@ -47,6 +59,7 @@ export function ProductFormPage() {
 
   return <ProductEditor
     key={`${liveId}:${product?.id ?? "new"}`}
+    creatorId={creator.data.id}
     liveId={liveId}
     liveName={live.name}
     product={product}
@@ -54,19 +67,45 @@ export function ProductFormPage() {
   />;
 }
 
-function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: string; liveName: string; product?: Product; refreshError: boolean }) {
+function ProductEditor({ creatorId, liveId, liveName, product, refreshError }: { creatorId: string; liveId: string; liveName: string; product?: Product; refreshError: boolean }) {
   const navigate = useNavigate();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const uploadImage = useUploadProductImage();
   const removeImage = useRemoveProductImage();
   const existingOptions = readProductOptionGroups(product?.options);
+  const [recoveryState] = useState(() => {
+    if (product) return { attempt: null, error: null };
+    try {
+      return { attempt: loadPendingProductCreation(creatorId, liveId), error: null };
+    } catch (error) {
+      return {
+        attempt: null,
+        error: error instanceof PendingProductCreationStorageError
+          ? error.message
+          : "Saved product recovery data could not be read safely.",
+      };
+    }
+  });
+  const [pendingAttempt, setPendingAttempt] = useState<PendingProductCreation | null>(recoveryState.attempt);
+  const recoveryError = recoveryState.error;
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [confirmedProduct, setConfirmedProduct] = useState(false);
   const [draft, setDraft] = useState<{
     name?: string;
     price?: string;
     stockQuantity?: string;
     groups?: ProductOptionGroup[];
-  }>({});
+  }>(() => {
+    if (!recoveryState.attempt || product) return {};
+    const savedOptions = readProductOptionGroups(recoveryState.attempt.input.options);
+    return {
+      name: recoveryState.attempt.input.name,
+      price: pesewasToCedisInput(recoveryState.attempt.input.price),
+      stockQuantity: String(recoveryState.attempt.input.stockQuantity ?? 0),
+      groups: savedOptions.supported ? savedOptions.groups : [],
+    };
+  });
   const name = draft.name ?? product?.name ?? "";
   const price = draft.price ?? (product ? pesewasToCedisInput(product.price) : "");
   const stockQuantity = draft.stockQuantity ?? String(product?.stockQuantity ?? 0);
@@ -80,9 +119,65 @@ function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: st
   const isPending = createProduct.isPending || updateProduct.isPending || uploadImage.isPending;
   const mutationError = createProduct.error ?? updateProduct.error;
 
+  function submitCreate(attempt: PendingProductCreation) {
+    createProduct.mutate(
+      { liveId, input: attempt.input, idempotencyKey: attempt.idempotencyKey },
+      {
+        onSuccess: () => {
+          try {
+            clearPendingProductCreation(creatorId, liveId);
+            setPendingAttempt(null);
+            setStorageError(null);
+            navigate(`/lives/${liveId}/products`, { state: { productNotice: "created" } });
+          } catch (error) {
+            setConfirmedProduct(true);
+            setStorageError(error instanceof PendingProductCreationStorageError
+              ? `The product was created, but ${error.message.toLocaleLowerCase()} Retry this same request before starting another product.`
+              : "The product was created, but its recovery record could not be cleared. Retry this same request before starting another product.");
+          }
+        },
+      },
+    );
+  }
+
+  function discardRejectedAttempt() {
+    if (!pendingAttempt) return;
+    try {
+      clearPendingProductCreation(creatorId, liveId);
+      setPendingAttempt(null);
+      setConfirmedProduct(false);
+      setStorageError(null);
+      createProduct.reset();
+    } catch (error) {
+      setStorageError(error instanceof PendingProductCreationStorageError
+        ? error.message
+        : "The saved product recovery data could not be cleared.");
+    }
+  }
+
+  function startNewProductAfterDeletion() {
+    if (!pendingAttempt) return;
+    try {
+      clearPendingProductCreation(creatorId, liveId);
+      setPendingAttempt(null);
+      setDraft({ name: "", price: "", stockQuantity: "0", groups: [] });
+      setStorageError(null);
+      createProduct.reset();
+    } catch (error) {
+      setStorageError(error instanceof PendingProductCreationStorageError
+        ? error.message
+        : "The deleted product recovery data could not be cleared.");
+    }
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (createProduct.isPending || uploadImage.isPending) return;
+    if (createProduct.isPending || uploadImage.isPending || recoveryError) return;
+    if (!product && pendingAttempt) {
+      submitCreate(pendingAttempt);
+      return;
+    }
+
     const nextErrors: typeof errors = {};
     const normalizedName = name.trim();
     if (normalizedName.length < 1 || normalizedName.length > 100) nextErrors.name = "Enter a product name of 1 to 100 characters.";
@@ -101,24 +196,26 @@ function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: st
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0 || !parsedPrice.ok || !Number.isSafeInteger(parsedStock) ||
-      (imageFile && (!["image/jpeg", "image/png", "image/webp"].includes(imageFile.type) || imageFile.size > 5 * 1024 * 1024))) return;
+      (product && imageFile && (!["image/jpeg", "image/png", "image/webp"].includes(imageFile.type) || imageFile.size > 5 * 1024 * 1024))) return;
 
     if (!product) {
-      createProduct.mutate(
-        {
-          liveId,
-          ...(imageFile ? { image: imageFile } : {}),
-          input: {
-            name: normalizedName,
-            price: parsedPrice.value,
-            stockQuantity: parsedStock,
-            ...(parsedOptions?.ok && Object.keys(parsedOptions.value).length > 0 ? { options: parsedOptions.value } : {}),
-          },
-        },
-        {
-          onSuccess: () => navigate(`/lives/${liveId}/products`, { state: { productNotice: "created" } }),
-        },
-      );
+      try {
+        const input = {
+          name: normalizedName,
+          price: parsedPrice.value,
+          stockQuantity: parsedStock,
+          ...(parsedOptions?.ok && Object.keys(parsedOptions.value).length > 0 ? { options: parsedOptions.value } : {}),
+        };
+        const attempt = { idempotencyKey: createProductCreationKey(), input };
+        savePendingProductCreation(creatorId, liveId, attempt);
+        setPendingAttempt(attempt);
+        setStorageError(null);
+        submitCreate(attempt);
+      } catch (error) {
+        setStorageError(error instanceof PendingProductCreationStorageError
+          ? error.message
+          : "Product recovery data could not be saved, so the product was not submitted.");
+      }
       return;
     }
 
@@ -139,29 +236,32 @@ function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: st
     );
   }
 
-  const createImageError = createProduct.error instanceof ApiError && [
-    "INVALID_IMAGE_FORMAT",
-    "IMAGE_TOO_LARGE",
-    "INVALID_IMAGE_UPLOAD",
-    "IMAGE_REQUIRED",
-    "IMAGE_STORAGE_NOT_CONFIGURED",
-    "IMAGE_STORAGE_FAILED",
-  ].includes(createProduct.error.code);
-  const mutationErrorMessage = createImageError
-    ? createProduct.error instanceof ApiError && createProduct.error.code === "IMAGE_STORAGE_NOT_CONFIGURED"
-      ? "Image storage is not configured. No product was created; ask the administrator to configure Cloudinary, then retry."
-      : createProduct.error instanceof ApiError && createProduct.error.code === "IMAGE_STORAGE_FAILED"
-        ? "The image provider could not save the image. No product was created; check the image and try again."
-        : createProduct.error instanceof ApiError && createProduct.error.code === "IMAGE_TOO_LARGE"
-          ? "The image is larger than 5 MB. No product was created; choose a smaller image and retry."
-          : createProduct.error instanceof ApiError && createProduct.error.code === "INVALID_IMAGE_FORMAT"
-            ? "The file contents are not a valid JPEG, PNG, or WebP image. No product was created; re-export the file and retry."
-            : "The image upload was incomplete. No product was created; choose one image and retry."
-    : mutationError instanceof ApiError && mutationError.code === "VALIDATION_ERROR"
-    ? "The server rejected one or more product fields. Check the name, price, stock and options, then try again."
-    : mutationError instanceof ApiError && mutationError.status === 404
-      ? product ? "This product or Live is no longer available. Return to the product list and refresh." : "This Live is no longer available in your account."
-      : "We couldn't save this product. Your current product information is unchanged; please try again.";
+  const idempotencyConflict = createProduct.error instanceof ApiError &&
+    createProduct.error.code === "IDEMPOTENCY_KEY_REUSED";
+  const deletedCreationResult = createProduct.error instanceof ApiError &&
+    createProduct.error.code === "IDEMPOTENCY_RESULT_DELETED";
+  const safelyRejectedCreate = createProduct.error instanceof ApiError &&
+    createProduct.error.status >= 400 &&
+    createProduct.error.status < 500 &&
+      createProduct.error.status !== 408 &&
+      !idempotencyConflict &&
+      !deletedCreationResult;
+  const createErrorMessage = deletedCreationResult
+      ? "This product was created successfully but has since been deleted. Retrying this saved request will not recreate it."
+      : idempotencyConflict
+        ? "This request key is already associated with different product details. The saved attempt has been kept; do not start a new attempt from it."
+        : safelyRejectedCreate
+          ? "The server rejected this request before creating a product. You may discard this saved attempt deliberately, then correct the details and try again."
+      : createProduct.error instanceof TransportError ||
+          (createProduct.error instanceof ApiError && (createProduct.error.status === 408 || createProduct.error.status >= 500)) ||
+        (createProduct.error !== null && !(createProduct.error instanceof ApiError))
+        ? "We couldn't confirm whether the product was saved. Your details and request key are kept; retry this same attempt safely. If it was already saved, the existing product will be returned."
+        : "The server rejected one or more product fields. Check the name, price, stock and options, then try again.";
+  const mutationErrorMessage = product
+    ? mutationError instanceof ApiError && mutationError.status === 404
+      ? "This product or Live is no longer available. Return to the product list and refresh."
+      : "We couldn't save this product. Your current changes are still here; please try again."
+    : createErrorMessage;
   const imageError = uploadImage.error ?? removeImage.error;
   const imageErrorMessage = imageError instanceof ApiError && imageError.code === "IMAGE_STORAGE_NOT_CONFIGURED"
     ? "Image uploads are not configured yet. Ask the administrator to add the Cloudinary server credentials."
@@ -184,12 +284,31 @@ function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: st
       <Link className="mb-5 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900" to={`/lives/${liveId}/products`}>← Back to products</Link>
       <PageHeader description={`${product ? "Update product details for" : "Add a product to"} ${liveName}.`} eyebrow="Live workspace" title={product ? "Edit product" : "Add product"} />
       {refreshError && <div className="mb-5"><Notice title="The latest Live or product data could not be refreshed. Your current form values are preserved." /></div>}
-      {(createProduct.isError || updateProduct.isError) && <div className="mb-5"><Notice title={mutationErrorMessage} /></div>}
+      {pendingAttempt && !product && !deletedCreationResult && <div className="mb-5"><Notice title="An unfinished product creation was found." tone="info">The saved details and request key will be reused. Retrying is safe: if the product was already created, the server will return that product. Edit details only after this attempt succeeds or is deliberately discarded after a definite rejection.</Notice></div>}
+      {recoveryError && <div className="mb-5"><Notice title={recoveryError}>Do not submit a new product from this tab until the saved attempt can be recovered.</Notice></div>}
+      {storageError && <div className="mb-5"><Notice title={storageError} /></div>}
+      {(updateProduct.isError || (createProduct.isError && !deletedCreationResult)) && <div className="mb-5"><Notice title={mutationErrorMessage} /></div>}
+      {createProduct.isError && deletedCreationResult && pendingAttempt && (
+        <div className="mb-5">
+          <Notice
+            action={<Button onClick={startNewProductAfterDeletion} size="sm" variant="secondary">Start a new product</Button>}
+            title="This product was created successfully but has since been deleted."
+          >
+            This saved request cannot recreate it. Starting a new product clears this recovery attempt; the new submission will use a fresh request key.
+          </Notice>
+        </div>
+      )}
+      {createProduct.isError && safelyRejectedCreate && pendingAttempt && (
+        <div className="mb-5">
+          <Notice title="This attempt was rejected and no product was created." action={<Button onClick={discardRejectedAttempt} size="sm" variant="secondary">Discard rejected attempt and edit</Button>} />
+        </div>
+      )}
+      {confirmedProduct && <div className="mb-5"><Notice title="Product creation succeeded, but browser recovery data is still present." tone="info">Retry with the same details to finish clearing the recovery record before starting another product.</Notice></div>}
 
       <form className="max-w-2xl space-y-5" noValidate onSubmit={submit}>
-        <TextField autoComplete="off" disabled={isPending} error={errors.name} label="Product name" maxLength={100} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} required value={name} />
-        <TextField disabled={isPending} error={errors.price} hint="Enter the amount in Ghanaian cedis, for example 25.50." inputMode="decimal" label="Price (GHS)" onChange={(event) => setDraft((current) => ({ ...current, price: event.target.value }))} placeholder="0.00" required value={price} />
-        <TextField disabled={isPending} error={errors.stock} hint="This is the quantity available to order. Option choices do not have separate stock." inputMode="numeric" label="Stock quantity" min={0} onChange={(event) => setDraft((current) => ({ ...current, stockQuantity: event.target.value }))} required step={1} type="number" value={stockQuantity} />
+        <TextField autoComplete="off" disabled={isPending || Boolean(pendingAttempt) || Boolean(recoveryError)} error={errors.name} label="Product name" maxLength={100} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} required value={name} />
+        <TextField disabled={isPending || Boolean(pendingAttempt) || Boolean(recoveryError)} error={errors.price} hint="Enter the amount in Ghanaian cedis, for example 25.50." inputMode="decimal" label="Price (GHS)" onChange={(event) => setDraft((current) => ({ ...current, price: event.target.value }))} placeholder="0.00" required value={price} />
+        <TextField disabled={isPending || Boolean(pendingAttempt) || Boolean(recoveryError)} error={errors.stock} hint="This is the quantity available to order. Option choices do not have separate stock." inputMode="numeric" label="Stock quantity" min={0} onChange={(event) => setDraft((current) => ({ ...current, stockQuantity: event.target.value }))} required step={1} type="number" value={stockQuantity} />
 
         {product && !existingOptions.supported && !replaceLegacyOptions && (
           <Notice title="This product has options in an older format." tone="info">
@@ -201,14 +320,14 @@ function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: st
         ) : (
           <>
             <ProductOptionsEditor
-              disabled={isPending || clearOptions}
+              disabled={isPending || clearOptions || Boolean(pendingAttempt) || Boolean(recoveryError)}
               groups={groups}
               onChange={(nextGroups) => { setDraft((current) => ({ ...current, groups: nextGroups })); setOptionsChanged(true); setClearOptions(false); }}
             />
             {errors.options && <p className="text-sm text-danger-700" role="alert">{errors.options}</p>}
             {product && (
               <Button
-                disabled={isPending}
+                disabled={isPending || Boolean(pendingAttempt) || Boolean(recoveryError)}
                 onClick={() => {
                   setClearOptions((current) => !current);
                   setOptionsChanged(true);
@@ -224,28 +343,28 @@ function ProductEditor({ liveId, liveName, product, refreshError }: { liveId: st
           </>
         )}
 
-        <ProductImageField
-          currentImageUrl={product?.image?.url}
-          disabled={isPending}
-          file={imageFile}
-          onFileChange={setImageFile}
-          onRemove={product?.image ? () => setConfirmRemoveImage(true) : undefined}
-          onUpload={product
-            ? () => {
-              if (imageFile) uploadImage.mutate({ liveId, productId: product.id, file: imageFile }, { onSuccess: () => setImageFile(null) });
-            }
-            : undefined}
-          pending={uploadImage.isPending}
-          productName={(product?.name ?? name.trim()) || "New product"}
-          removePending={removeImage.isPending}
-          uploadLabel={product?.image ? "Upload replacement" : "Upload image"}
-        />
+        {product
+          ? <ProductImageField
+              currentImageUrl={product.image?.url}
+              disabled={isPending}
+              file={imageFile}
+              onFileChange={setImageFile}
+              onRemove={product.image ? () => setConfirmRemoveImage(true) : undefined}
+              onUpload={() => {
+                if (imageFile) uploadImage.mutate({ liveId, productId: product.id, file: imageFile }, { onSuccess: () => setImageFile(null) });
+              }}
+              pending={uploadImage.isPending}
+              productName={product.name}
+              removePending={removeImage.isPending}
+              uploadLabel={product.image ? "Upload replacement" : "Upload image"}
+            />
+          : <Notice title="You can add an image after creating this product." tone="info" />}
         {(uploadImage.isError || removeImage.isError) ? <Notice title={imageErrorMessage} /> : null}
         {product && (uploadImage.isSuccess || removeImage.isSuccess) ? <Notice title="Product image updated." tone="success" /> : null}
 
         <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
-          <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" to={`/lives/${liveId}/products`}>Cancel</Link>
-          <Button disabled={isPending} type="submit">{isPending ? "Saving…" : product ? "Save changes" : "Create product"}</Button>
+          <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" to={`/lives/${liveId}/products`}>{pendingAttempt ? "Back to products" : "Cancel"}</Link>
+          <Button disabled={isPending || Boolean(recoveryError) || (deletedCreationResult && Boolean(pendingAttempt))} type="submit">{isPending ? "Saving…" : product ? "Save changes" : confirmedProduct ? "Confirm saved product" : deletedCreationResult && pendingAttempt ? "Creation result deleted" : pendingAttempt ? "Retry saved creation" : "Create product"}</Button>
         </div>
       </form>
 

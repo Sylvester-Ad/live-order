@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../../../src/app/providers";
 import { createTestRouter } from "../../../src/app/router";
 import type { Product } from "../../../src/features/products/api/products-api";
+import { pendingProductCreationStorageKey } from "../../../src/features/products/lib/pending-product-creation";
 
 const creator = { id: "creator-1", name: "Ama" };
 const live = {
@@ -52,9 +53,10 @@ function createTestQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
 }
 
-function productFetch(initialProducts: Product[] = [], rejectDelete = true, failFirstImageUpload = false) {
+function productFetch(initialProducts: Product[] = [], rejectDelete = true) {
   let products = initialProducts;
-  let imageUploads = 0;
+  let createdProductCount = 0;
+  const createdByKey = new Map<string, { payload: string; product: Product }>();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
@@ -63,31 +65,32 @@ function productFetch(initialProducts: Product[] = [], rejectDelete = true, fail
       return response({ data: products });
     }
     if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
-      const formData = init.body instanceof FormData ? init.body : null;
-      if (formData?.has("image")) {
-        imageUploads += 1;
-        if (failFirstImageUpload && imageUploads === 1) {
-          return response({ error: { code: "IMAGE_STORAGE_FAILED", message: "Upload failed" } }, 502);
-        }
+      if (init.body instanceof FormData) {
+        return response({ error: { code: "UNSUPPORTED_PRODUCT_MEDIA_TYPE", message: "JSON only" } }, 415);
       }
-      const body = JSON.parse(formData ? String(formData.get("product")) : String(init.body)) as { name: string; price: number; stockQuantity: number; options?: unknown };
+      const idempotencyKey = new Headers(init.headers).get("Idempotency-Key");
+      if (!idempotencyKey) return response({ error: { code: "VALIDATION_ERROR", message: "Missing key" } }, 400);
+      const payload = String(init.body);
+      const previous = createdByKey.get(idempotencyKey);
+      if (previous) {
+        if (previous.payload !== payload) {
+          return response({ error: { code: "IDEMPOTENCY_KEY_REUSED", message: "Key reused" } }, 409);
+        }
+        return response({ data: previous.product }, 201);
+      }
+      const body = JSON.parse(payload) as { name: string; price: number; stockQuantity: number; options?: unknown };
       const created = product({
-        id: "product-new",
+        id: `product-new-${++createdProductCount}`,
         ...body,
         options: body.options ?? null,
-        image: formData?.has("image")
-          ? { id: "image-1", url: "https://images.example/product.png", createdAt: "2026-10-12T10:00:00.000Z" }
-          : null,
+        image: null,
       });
+      createdByKey.set(idempotencyKey, { payload, product: created });
       products = [...products, created];
       return response({ data: created }, 201);
     }
     const imagePath = url.match(/\/api\/v1\/lives\/live-1\/products\/([^/]+)\/image$/);
     if (imagePath && init?.method === "POST") {
-      imageUploads += 1;
-      if (failFirstImageUpload && imageUploads === 1) {
-        return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Upload failed" } }, 500);
-      }
       const productId = imagePath[1];
       const current = products.find((item) => item.id === productId);
       if (!current) return response({ error: { code: "PRODUCT_NOT_FOUND", message: "Missing" } }, 404);
@@ -130,6 +133,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  sessionStorage.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
@@ -306,16 +310,194 @@ describe("seller product management", () => {
     expect(await screen.findByText("Product created.")).toBeInTheDocument();
     expect(screen.getByText("Cotton shirt")).toBeInTheDocument();
     const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(createCall?.[1]?.body).not.toBeInstanceOf(FormData);
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       name: "Cotton shirt",
       price: 2550,
       stockQuantity: 12,
       options: { Size: ["S", "M"] },
     });
+    expect(new Headers(createCall?.[1]?.headers).get("Idempotency-Key")).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(screen.queryByLabelText("Choose an image file")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/image") && init?.method === "POST")).toBe(false);
-    expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).endsWith("/api/v1/lives/live-1/products") && init?.method === "GET",
-    )).toBe(true); // The destination list is refreshed after creation succeeds.
+    expect(screen.getByText("Cotton shirt")).toBeInTheDocument();
+    expect(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1"))).toBeNull();
+  });
+
+  it("recovers the same product request and key after a timeout and refresh", async () => {
+    let committedProduct: Product | null = null;
+    let createAttempts = 0;
+    const createKeys: string[] = [];
+    const createBodies: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/lives/live-1/products") && (!init?.method || init.method === "GET")) {
+        return response({ data: committedProduct ? [committedProduct] : [] });
+      }
+      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+        createAttempts += 1;
+        const key = new Headers(init.headers).get("Idempotency-Key");
+        createKeys.push(key ?? "");
+        createBodies.push(String(init.body));
+        if (!committedProduct) {
+          const body = JSON.parse(String(init.body)) as { name: string; price: number; stockQuantity: number };
+          committedProduct = product({
+            id: "product-after-lost-response",
+            ...body,
+            options: null,
+            image: null,
+          });
+        }
+        if (createAttempts === 1) throw new DOMException("Request timed out", "AbortError");
+        return response({ data: committedProduct }, 201);
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    const queryClient = createTestQueryClient();
+    vi.stubGlobal("fetch", fetchMock);
+    const firstRender = renderPath("/lives/live-1/products/new", queryClient);
+
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "  Saved shirt  " } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "19.50" } });
+    fireEvent.change(screen.getByLabelText("Stock quantity"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+
+    expect(await screen.findByText(/We couldn't confirm whether the product was saved/)).toBeInTheDocument();
+    expect(screen.getByText("An unfinished product creation was found.")).toBeInTheDocument();
+    const savedAttempt = JSON.parse(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1")) ?? "null") as {
+      idempotencyKey: string;
+      input: { name: string; price: number; stockQuantity: number };
+    };
+    expect(savedAttempt.input).toEqual({ name: "Saved shirt", price: 1950, stockQuantity: 7 });
+
+    firstRender.unmount();
+    renderPath("/lives/live-1/products/new", queryClient);
+
+    expect(await screen.findByLabelText("Product name")).toHaveValue("Saved shirt");
+    expect(screen.getByLabelText("Product name")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry saved creation" }));
+
+    expect(await screen.findByText("Product created.")).toBeInTheDocument();
+    expect(createKeys).toEqual([savedAttempt.idempotencyKey, savedAttempt.idempotencyKey]);
+    expect(createBodies).toEqual([
+      JSON.stringify(savedAttempt.input),
+      JSON.stringify(savedAttempt.input),
+    ]);
+    expect(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1"))).toBeNull();
+    queryClient.clear();
+  });
+
+  it("keeps the same attempt after an HTTP request timeout", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+        return response({ error: { code: "REQUEST_TIMEOUT", message: "Request timed out" } }, 408);
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/new");
+
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Saved shirt" } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "19.50" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+
+    expect(await screen.findByText(/We couldn't confirm whether the product was saved/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry saved creation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard rejected attempt and edit" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1"))).not.toBeNull();
+  });
+
+  it("explains a deleted creation result and starts a fresh attempt with a new key", async () => {
+    const creationKeys: string[] = [];
+    const creationBodies: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/lives/live-1/products") && (!init?.method || init.method === "GET")) {
+        return response({ data: [] });
+      }
+      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+        creationKeys.push(new Headers(init.headers).get("Idempotency-Key") ?? "");
+        creationBodies.push(String(init.body));
+        if (creationKeys.length === 1) {
+          return response({
+            error: {
+              code: "IDEMPOTENCY_RESULT_DELETED",
+              message: "The product created by this request has since been deleted",
+            },
+          }, 410);
+        }
+
+        const input = JSON.parse(String(init.body)) as { name: string; price: number; stockQuantity: number };
+        return response({ data: product({ id: "new-product", ...input, options: null }) }, 201);
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/new");
+
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Deleted shirt" } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "19.50" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+
+    expect(await screen.findByText("This product was created successfully but has since been deleted.")).toBeInTheDocument();
+    expect(screen.getByText(/This saved request cannot recreate it/)).toBeInTheDocument();
+    expect(screen.queryByText("An unfinished product creation was found.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/no product was created/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard rejected attempt and edit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Creation result deleted" })).toBeDisabled();
+    const deletedAttempt = JSON.parse(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1")) ?? "null") as {
+      idempotencyKey: string;
+      input: { name: string; price: number; stockQuantity: number };
+    };
+    expect(creationKeys).toEqual([deletedAttempt.idempotencyKey]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a new product" }));
+
+    expect(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1"))).toBeNull();
+    expect(screen.getByLabelText("Product name")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Create product" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Replacement shirt" } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+
+    expect(await screen.findByText("Product created.")).toBeInTheDocument();
+    expect(creationKeys).toHaveLength(2);
+    expect(creationKeys[1]).not.toBe(deletedAttempt.idempotencyKey);
+    expect(creationBodies.map((body) => JSON.parse(body))).toEqual([
+      deletedAttempt.input,
+      { name: "Replacement shirt", price: 2500, stockQuantity: 0 },
+    ]);
+  });
+
+  it("uses a new idempotency key for a genuinely new product", async () => {
+    const fetchMock = productFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/lives/live-1/products/new");
+
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "First product" } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "10.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+    expect(await screen.findByText("Product created.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Add product" }));
+    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Second product" } });
+    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "11.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+    expect(await screen.findByText("Product created.")).toBeInTheDocument();
+
+    const createCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" && init.body !== undefined);
+    const keys = createCalls.map(([, init]) => new Headers(init?.headers).get("Idempotency-Key"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
   });
 
   it("rejects invalid price and unfinished options before sending a create request", async () => {
@@ -331,33 +513,6 @@ describe("seller product management", () => {
     expect(await screen.findByText("Enter an amount with up to two decimal places.")).toBeInTheDocument();
     expect(screen.getByText("Enter a name for every option group.")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
-  });
-
-  it("does not create a product when its image upload fails and retries the combined create", async () => {
-    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:new-product" });
-    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => undefined });
-    const fetchMock = productFetch([], true, true);
-    vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
-
-    const file = new File(["image"], "bag.png", { type: "image/png" });
-    fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Limited bag" } });
-    fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.00" } });
-    fireEvent.change(screen.getByLabelText("Stock quantity"), { target: { value: "5" } });
-    fireEvent.change(screen.getByLabelText("Choose an image file"), { target: { files: [file] } });
-    expect(screen.getByRole("img", { name: "Limited bag product preview" })).toHaveAttribute("src", "blob:new-product");
-
-    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
-    expect(await screen.findByText("The image provider could not save the image. No product was created; check the image and try again.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Product name")).toHaveValue("Limited bag");
-
-    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
-    expect(await screen.findByRole("heading", { name: "Products" })).toBeInTheDocument();
-    const productCreateCalls = fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/products") && init?.method === "POST");
-    expect(productCreateCalls).toHaveLength(2);
-    expect(productCreateCalls.every(([, init]) => init?.body instanceof FormData)).toBe(true);
-    expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/image") && init?.method === "POST")).toBe(false);
-    expect(await screen.findByText("Limited bag")).toBeInTheDocument();
   });
 
   it("edits option group and choices while preserving the configured options format", async () => {
@@ -406,8 +561,13 @@ describe("seller product management", () => {
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "12.00" } });
     fireEvent.click(screen.getByRole("button", { name: "Create product" }));
 
-    expect(await screen.findByText("The server rejected one or more product fields. Check the name, price, stock and options, then try again.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create product" })).toBeEnabled();
+    expect(await screen.findByText("The server rejected this request before creating a product. You may discard this saved attempt deliberately, then correct the details and try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard rejected attempt and edit" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Retry saved creation" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard rejected attempt and edit" }));
+    expect(screen.getByLabelText("Product name")).toBeEnabled();
+    expect(sessionStorage.getItem(pendingProductCreationStorageKey("creator-1", "live-1"))).toBeNull();
   });
 
   it("updates supported fields while preserving untouched existing options", async () => {
@@ -456,7 +616,7 @@ describe("seller product management", () => {
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Unsaved name" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByText("We couldn't save this product. Your current product information is unchanged; please try again.")).toBeInTheDocument();
+    expect(await screen.findByText("We couldn't save this product. Your current changes are still here; please try again.")).toBeInTheDocument();
     expect(screen.getByLabelText("Product name")).toHaveValue("Unsaved name");
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   });

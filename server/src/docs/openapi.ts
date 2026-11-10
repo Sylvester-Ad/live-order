@@ -288,7 +288,7 @@ registry.registerPath({
   tags: ["Products"],
   summary: "Create a product",
   description:
-    "Adds a product to a Live owned by the authenticated creator. The request may be JSON without an image or multipart form data with a JSON product field and one JPEG, PNG, or WebP image up to 5 MB. When an image is supplied, the image and product are persisted together after the provider upload succeeds. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.",
+    "Creates a product without an image for a Live owned by the authenticated creator. The request must be JSON and include an Idempotency-Key UUID. Repeating the same key and payload returns the original product; reusing the key with a different payload returns a conflict. Upload images separately after creation. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -296,16 +296,16 @@ registry.registerPath({
         description: "ID of the Live receiving the product.",
       }),
     }),
+    headers: z.object({
+      "Idempotency-Key": z.uuid().openapi({
+        param: { name: "Idempotency-Key", in: "header" },
+        description: "A UUID reused for retries of the same logical product creation request.",
+      }),
+    }),
     body: {
       required: true,
       content: {
         "application/json": { schema: schemaRef("CreateProductRequest") },
-        "multipart/form-data": {
-          schema: z.object({
-            product: z.string().openapi({ description: "JSON-encoded CreateProductRequest." }),
-            image: z.string().openapi({ type: "string", format: "binary" }),
-          }),
-        },
       },
     },
   },
@@ -316,10 +316,10 @@ registry.registerPath({
     ),
     400: errorResponse("Invalid Live ID or product data."),
     401: errorResponse("Authentication is required."),
+    409: errorResponse("The idempotency key was already used for a different product request."),
     404: errorResponse("Live not found or not owned by the creator."),
-    413: errorResponse("Product image exceeds 5 MB."),
-    502: errorResponse("Image storage provider could not store the image."),
-    503: errorResponse("Image storage is not configured."),
+    410: errorResponse("The product created by this request has since been deleted."),
+    415: errorResponse("Product creation accepts JSON only."),
   },
 });
 

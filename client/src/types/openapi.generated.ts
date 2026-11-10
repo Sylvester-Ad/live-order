@@ -43,6 +43,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readiness check
+         * @description Checks whether the API can reach its configured SQLite database.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description API and required dependencies are ready. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HealthResponse"];
+                    };
+                };
+                /** @description A required dependency is unavailable. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/lives/{liveId}/products/{productId}/image": {
         parameters: {
             query?: never;
@@ -641,12 +689,15 @@ export interface paths {
         put?: never;
         /**
          * Create a product
-         * @description Adds a product to a Live owned by the authenticated creator. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.
+         * @description Creates a product without an image for a Live owned by the authenticated creator. The request must be JSON and include an Idempotency-Key UUID. Repeating the same key and payload returns the original product; reusing the key with a different payload returns a conflict. Upload images separately after creation. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.
          */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    /** @description A UUID reused for retries of the same logical product creation request. */
+                    "Idempotency-Key": string;
+                };
                 path: {
                     /** @description ID of the Live receiving the product. */
                     liveId: string;
@@ -688,6 +739,33 @@ export interface paths {
                 };
                 /** @description Live not found or not owned by the creator. */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The idempotency key was already used for a different product request. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The product created by this request has since been deleted. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product creation accepts JSON only. */
+                415: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -900,7 +978,7 @@ export interface paths {
         put?: never;
         /**
          * Place an order
-         * @description Creates a customer order for an active Live. The backend validates configured option choices, uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.
+         * @description Creates a customer order for an active Live. Each configured product option group requires one valid customer selection. The backend uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.
          */
         post: {
             parameters: {
@@ -1047,7 +1125,7 @@ export interface paths {
         };
         /**
          * Export orders as CSV
-         * @description Downloads order data as a CSV file. Monetary values are expressed in pesewas.
+         * @description Downloads order data as a CSV file. Monetary values are expressed in pesewas. Existing columns are followed by the customer-facing order reference.
          */
         get: {
             parameters: {
