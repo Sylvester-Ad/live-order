@@ -255,7 +255,7 @@ export function PublicLivePage() {
         <Card><CardContent><p className="font-semibold text-ink">Products will appear here when the seller adds them.</p></CardContent></Card>
       ) : (
         <form className="grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_21rem] lg:pb-0" onSubmit={submitOrder}>
-          <section aria-label="Products" className="grid content-start gap-4 sm:grid-cols-2">
+          <section aria-label="Products" className="grid content-start gap-3">
             {live.products.map((product) => {
               const optionGroups = readProductOptionGroups(product.options);
               const selectedOptions = selections[product.id] ?? {};
@@ -265,14 +265,18 @@ export function PublicLivePage() {
               const alreadyInCart = productQuantityInCart(cart, product.id);
               const remainingStock = Math.max(0, product.stockQuantity - alreadyInCart);
               const selectedQuantity = Math.min(addQuantities[product.id] ?? 1, remainingStock, 100);
+              const productImages = product.images ?? (
+                product.image ? [{ ...product.image, isPrimary: true }] : []
+              );
               return (
                 <Card key={product.id}>
-                  <CardContent className="grid gap-3">
-                    <ProductImage src={product.image?.url} name={product.name} />
-                    <div className="flex items-start justify-between gap-3">
-                      <h2 className="min-w-0 break-words font-bold text-ink">{product.name}</h2>
-                      <p className="shrink-0 font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
-                    </div>
+                  <CardContent className="flex items-start gap-3 sm:gap-4">
+                    <ProductImageGallery compact images={productImages} name={product.name} />
+                    <div className="grid min-w-0 flex-1 gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                        <h2 className="min-w-0 break-words font-bold text-ink">{product.name}</h2>
+                        <p className="shrink-0 font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
+                      </div>
                     {!product.available || product.stockQuantity === 0 ? (
                       <p className="text-sm font-semibold text-danger-700">Out of stock</p>
                     ) : (
@@ -303,9 +307,9 @@ export function PublicLivePage() {
                         {!optionGroups.supported && product.options != null && (
                           <p className="text-sm text-ink-muted">This product has older option details; contact the seller to confirm your preference.</p>
                         )}
-                        <div className="mt-auto grid gap-3 border-t border-border pt-3">
-                          <label className="grid max-w-40 gap-1.5 text-sm font-medium text-ink">
-                            Quantity to add
+                        <div className="mt-1 flex flex-wrap items-end gap-3 border-t border-border pt-3">
+                          <label className="grid w-24 gap-1.5 text-sm font-medium text-ink">
+                            Quantity
                             <input
                               aria-label={`Quantity to add for ${product.name}`}
                               className="min-h-11 rounded-control border border-border px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
@@ -321,12 +325,13 @@ export function PublicLivePage() {
                               value={remainingStock === 0 ? 0 : selectedQuantity}
                             />
                           </label>
-                          <Button disabled={uncertainSubmission || remainingStock === 0 || selectedQuantity < 1 || missingPreference} onClick={() => addToOrder(product)} type="button">
+                          <Button className="flex-1 sm:flex-none" disabled={uncertainSubmission || remainingStock === 0 || selectedQuantity < 1 || missingPreference} onClick={() => addToOrder(product)} type="button">
                             {remainingStock === 0 ? "Stock limit reached" : "Add to order"}
                           </Button>
                         </div>
                       </>
                     )}
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -456,11 +461,54 @@ function SelectedOptions({ options }: { options: unknown }) {
   return <span className="block text-xs text-ink-muted">{entries.map(([group, choice]) => `${group}: ${choice}`).join(" · ")}</span>;
 }
 
-function ProductImage({ src, name }: { src?: string; name: string }) {
-  const [failed, setFailed] = useState(false);
-  return src && !failed ? (
-    <img alt={name} className="aspect-4/3 w-full rounded-panel bg-canvas object-contain" loading="lazy" onError={() => setFailed(true)} src={src} />
-  ) : (
-    <div className="grid aspect-4/3 place-items-center rounded-panel bg-canvas text-sm text-ink-muted">Image unavailable</div>
+function ProductImageGallery({
+  images,
+  name,
+  compact = false,
+}: {
+  images: PublicLive["products"][number]["images"];
+  name: string;
+  compact?: boolean;
+}) {
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [failedImageIds, setFailedImageIds] = useState<string[]>([]);
+  const primaryImage = images.find((image) => image.isPrimary) ?? images[0];
+  const selectedImage = images.find((image) => image.id === selectedImageId) ?? primaryImage;
+  const selectedImageIndex = selectedImage ? images.findIndex((image) => image.id === selectedImage.id) : -1;
+
+  return (
+    <div className={`grid shrink-0 content-start gap-1.5 ${compact ? "w-20 sm:w-24" : "gap-2"}`}>
+      {selectedImage && !failedImageIds.includes(selectedImage.id) ? (
+        <img
+          alt={`${name} image ${selectedImageIndex + 1}`}
+          className={`${compact ? "aspect-square" : "aspect-4/3"} w-full rounded-panel bg-canvas object-contain`}
+          loading="lazy"
+          onError={() => setFailedImageIds((current) => [...current, selectedImage.id])}
+          src={selectedImage.url}
+        />
+      ) : (
+        <div className={`grid ${compact ? "aspect-square text-xs" : "aspect-4/3 text-sm"} place-items-center rounded-panel bg-canvas text-ink-muted`}>
+          {selectedImage ? "Image unavailable" : "No product image"}
+        </div>
+      )}
+      {images.length > 1 && (
+        <div aria-label={`${name} product images`} className="flex gap-2 overflow-x-auto pb-1" role="group">
+          {images.map((image, index) => (
+            <button
+              aria-label={`Show image ${index + 1} of ${images.length} for ${name}`}
+              aria-pressed={selectedImage?.id === image.id}
+              className={`shrink-0 rounded-control outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 ${
+                selectedImage?.id === image.id ? "ring-2 ring-brand-700" : "ring-1 ring-border"
+              }`}
+              key={image.id}
+              onClick={() => setSelectedImageId(image.id)}
+              type="button"
+            >
+              <img alt="" className={`${compact ? "size-8 sm:size-9" : "size-14"} rounded-control bg-canvas object-cover`} loading="lazy" src={image.url} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

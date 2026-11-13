@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import { prisma } from "../../database/prisma.js";
 import type { CreateLiveInput } from "./lives.schemas.js";
 import { AppError } from "../../shared/errors/app-error.js";
-import { getImageStorage } from "../products/image-storage/index.js";
 import type { UpdateLiveInput } from "./lives.schemas.js";
+import { serializeProductImages } from "../products/product-images.service.js";
 
 function generateSlug(name: string): string {
   const base = name
@@ -99,9 +99,17 @@ export async function getPublicLiveBySlug(slug: string) {
           options: true,
           stockQuantity: true,
           images: {
-            where: { isPrimary: true },
-            select: { id: true, url: true, storageId: true, provider: true, createdAt: true },
-            take: 1,
+            where: { state: "ACTIVE" },
+            select: {
+              id: true,
+              url: true,
+              storageId: true,
+              provider: true,
+              isPrimary: true,
+              state: true,
+              createdAt: true,
+            },
+            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }, { id: "asc" }],
           },
         },
         orderBy: {
@@ -124,16 +132,7 @@ export async function getPublicLiveBySlug(slug: string) {
       options: product.options,
       stockQuantity: product.stockQuantity,
       available: product.stockQuantity > 0,
-      image: product.images[0]
-        ? {
-            id: product.images[0].id,
-            url: getImageStorage(product.images[0].provider).deliveryUrl(
-              product.images[0].storageId,
-              product.images[0].url,
-            ),
-            createdAt: product.images[0].createdAt,
-          }
-        : null,
+      ...serializeProductImages(product.images),
     })),
   };
 }

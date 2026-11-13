@@ -8,6 +8,10 @@ import type {
 } from "./products.schemas.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { getImageStorage } from "./image-storage/index.js";
+import {
+  activeProductImagesInclude,
+  productWithImages,
+} from "./product-images.service.js";
 
 export async function createProduct(
   creatorId: string,
@@ -77,11 +81,11 @@ export async function createProduct(
 
       return tx.product.findUniqueOrThrow({
         where: { id: created.id },
-        include: { images: { where: { isPrimary: true }, take: 1 } },
+        include: activeProductImagesInclude,
       });
     });
 
-    return withPrimaryImage(product);
+    return productWithImages(product);
   } catch (error) {
     try {
       const committedProduct = await findIdempotentProduct(
@@ -124,7 +128,7 @@ async function findIdempotentProduct(
   const creationRequest = await prisma.productCreationRequest.findUnique({
     where: { idempotencyKey },
     include: {
-      product: { include: { images: { where: { isPrimary: true }, take: 1 } } },
+      product: { include: activeProductImagesInclude },
     },
   });
 
@@ -148,22 +152,7 @@ async function findIdempotentProduct(
     );
   }
 
-  return withPrimaryImage(creationRequest.product);
-}
-
-function withPrimaryImage<T extends { images: Array<{ id: string; url: string; storageId: string; provider: string; createdAt: Date }> }>(product: T) {
-  const { images, ...fields } = product;
-  const image = images[0];
-  return {
-    ...fields,
-    image: image
-      ? {
-          id: image.id,
-          url: getImageStorage(image.provider).deliveryUrl(image.storageId, image.url),
-          createdAt: image.createdAt,
-        }
-      : null,
-  };
+  return productWithImages(creationRequest.product);
 }
 
 export async function listProducts(creatorId: string, liveId: string) {
@@ -188,8 +177,8 @@ export async function listProducts(creatorId: string, liveId: string) {
     orderBy: {
       createdAt: "asc",
     },
-    include: { images: { where: { isPrimary: true }, take: 1 } },
-  }).then((products) => products.map(withPrimaryImage));
+    include: activeProductImagesInclude,
+  }).then((products) => products.map(productWithImages));
 }
 
 export async function updateProduct(
@@ -224,8 +213,8 @@ export async function updateProduct(
             : (input.options as Prisma.InputJsonValue),
       }),
     },
-    include: { images: { where: { isPrimary: true }, take: 1 } },
-  }).then(withPrimaryImage);
+    include: activeProductImagesInclude,
+  }).then(productWithImages);
 }
 
 function isForeignKeyConstraintError(error: unknown): boolean {
@@ -243,6 +232,33 @@ export async function deleteProduct(
   productId: string,
 ): Promise<void> {
   const images = await prisma.$transaction(async (tx) => {
+    const deletionGate = await tx.product.updateMany({
+      where: {
+        id: productId,
+        liveId,
+        isDeleting: false,
+        live: { creatorId },
+      },
+      data: { isDeleting: true },
+    });
+
+    if (deletionGate.count === 0) {
+      const product = await tx.product.findFirst({
+        where: {
+          id: productId,
+          liveId,
+          live: { creatorId },
+        },
+        select: { id: true },
+      });
+
+      if (!product) {
+        throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+      }
+
+      throw new AppError(409, "PRODUCT_DELETING", "This product is already being deleted");
+    }
+
     const product = await tx.product.findFirst({
       where: {
         id: productId,
@@ -256,6 +272,18 @@ export async function deleteProduct(
       throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
     }
 
+    const pendingImageUploads = await tx.productImageUploadRequest.count({
+      where: { productId: product.id, status: "PENDING" },
+    });
+
+    if (pendingImageUploads > 0) {
+      throw new AppError(
+        409,
+        "PENDING_IMAGE_UPLOADS",
+        "Resolve pending image uploads before deleting this product",
+      );
+    }
+
     const orderItemCount = await tx.orderItem.count({
       where: { productId: product.id },
     });
@@ -267,6 +295,11 @@ export async function deleteProduct(
         "Products with order history cannot be deleted",
       );
     }
+
+    await tx.productImageUploadRequest.updateMany({
+      where: { productId: product.id, status: "COMPLETED" },
+      data: { status: "DELETED" },
+    });
 
     try {
       await tx.product.delete({ where: { id: product.id } });

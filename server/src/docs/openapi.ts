@@ -53,16 +53,36 @@ registry.registerPath({
   },
 });
 
-// POST /api/v1/creator/access
+// POST /api/v1/lives/{liveId}/products/{productId}/image
 registry.registerPath({
   method: "post",
   path: "/api/v1/lives/{liveId}/products/{productId}/image",
   tags: ["Products"],
-  summary: "Upload or replace a product image",
-  description: "Uploads a JPEG, PNG, or WebP image up to 5 MB for a product owned by the authenticated creator.",
+  summary: "Deprecated product image upload",
+  description: "This legacy unkeyed upload route is retired. Use the idempotent /images endpoint.",
+  security: [{ CreatorSession: [] }],
+  responses: {
+    410: errorResponse("This unkeyed upload route has been retired."),
+    401: errorResponse("Authentication is required."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/lives/{liveId}/products/{productId}/images",
+  tags: ["Products"],
+  summary: "Upload a product image",
+  description:
+    "Uploads one JPEG, PNG, or WebP image up to 5 MB to a product owned by the authenticated creator. Reuse the required Idempotency-Key UUID and the exact same file bytes to safely retry an ambiguous upload. After a browser refresh, completed uploads can be recovered through the status endpoint. A pending upload requires selecting the original file again and retrying with the same key and bytes; uploaded file contents are not retained by the application. A product can have up to three active or pending images.",
   security: [{ CreatorSession: [] }],
   request: {
-    params: z.object({ liveId: z.string(), productId: z.string() }),
+    params: z.object({ liveId: z.uuid(), productId: z.uuid() }),
+    headers: z.object({
+      "Idempotency-Key": z.uuid().openapi({
+        param: { name: "Idempotency-Key", in: "header" },
+        description: "UUID identifying this logical image upload; reuse it with the original file bytes when retrying.",
+      }),
+    }),
     body: {
       required: true,
       content: {
@@ -73,13 +93,91 @@ registry.registerPath({
     },
   },
   responses: {
-    200: jsonResponse("Image uploaded successfully.", schemaRef("ProductSuccessResponse")),
-    400: errorResponse("Invalid image upload."),
+    201: jsonResponse("Image uploaded and finalized.", schemaRef("ProductImageUploadSuccessResponse")),
+    200: jsonResponse("Existing upload result returned.", schemaRef("ProductImageUploadSuccessResponse")),
+    400: errorResponse("Invalid image, UUID, or upload request."),
     401: errorResponse("Authentication is required."),
-    404: errorResponse("Product not found or not owned by the creator."),
+    404: errorResponse("Live or product not found or not owned by the creator."),
+    409: errorResponse("The key was reused with different input, the product is deleting, or the image limit was reached."),
+    410: errorResponse("This upload result was previously deleted."),
     413: errorResponse("Image exceeds the 5 MB limit."),
     502: errorResponse("Image storage provider failed."),
-    503: errorResponse("Image storage is not configured."),
+    503: errorResponse("Image storage or upload finalization is temporarily unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/lives/{liveId}/product-image-uploads/{idempotencyKey}",
+  tags: ["Products"],
+  summary: "Get product image upload status",
+  description:
+    "Completed uploads return their saved image result. Pending uploads can be resumed by selecting the original file again and retrying the upload with the same idempotency key and exact file bytes.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ liveId: z.uuid(), idempotencyKey: z.uuid() }),
+  },
+  responses: {
+    200: jsonResponse("Pending or completed upload status returned.", schemaRef("ProductImageUploadStatusSuccessResponse")),
+    400: errorResponse("Invalid Live ID or idempotency key."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Upload not found."),
+    410: errorResponse("The image created by this request has since been deleted."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/lives/{liveId}/products/{productId}/image-uploads/pending",
+  tags: ["Products"],
+  summary: "List pending product image uploads",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ liveId: z.uuid(), productId: z.uuid() }),
+  },
+  responses: {
+    200: jsonResponse("Pending upload attempts returned.", schemaRef("PendingProductImageUploadsSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}/primary",
+  tags: ["Products"],
+  summary: "Select a product's primary image",
+  description:
+    "Sets an active image belonging to the authenticated creator's product as its primary image and returns the updated product with its active image gallery.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ liveId: z.uuid(), productId: z.uuid(), imageId: z.uuid() }),
+  },
+  responses: {
+    200: jsonResponse("Primary image selected.", schemaRef("ProductSuccessResponse")),
+    400: errorResponse("Invalid Live, product, or image ID."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product or product image not found."),
+    409: errorResponse("The product is deleting or the image is not active."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}",
+  tags: ["Products"],
+  summary: "Remove a product image",
+  description:
+    "Logically removes an active image from a product owned by the authenticated creator, releases its slot once, and attempts provider cleanup. Repeating the request for a deleting image retries provider cleanup without releasing the slot again.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ liveId: z.uuid(), productId: z.uuid(), imageId: z.uuid() }),
+  },
+  responses: {
+    200: jsonResponse("Updated product returned; provider cleanup is attempted synchronously.", schemaRef("ProductSuccessResponse")),
+    400: errorResponse("Invalid Live, product, or image ID."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product or product image not found."),
   },
 });
 
@@ -87,14 +185,15 @@ registry.registerPath({
   method: "delete",
   path: "/api/v1/lives/{liveId}/products/{productId}/image",
   tags: ["Products"],
-  summary: "Remove a product image",
+  summary: "Remove the primary product image",
+  description:
+    "Compatibility endpoint that removes the current primary image, if present. Use the image-specific endpoint to remove a chosen image or retry cleanup for an image already being deleted.",
   security: [{ CreatorSession: [] }],
   request: { params: z.object({ liveId: z.string(), productId: z.string() }) },
   responses: {
     200: jsonResponse("Image removed successfully.", schemaRef("ProductSuccessResponse")),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Product not found or not owned by the creator."),
-    502: errorResponse("Image storage provider failed."),
   },
 });
 
@@ -237,7 +336,7 @@ registry.registerPath({
   tags: ["Public Lives"],
   summary: "Get a public Live",
   description:
-    "Returns an active Live and its public product information. No creator session is required.",
+    "Returns an active Live and its public product information. Product images include active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image. No provider storage identifiers are exposed, and no creator session is required.",
   request: {
     params: z.object({
       slug: z.string().openapi({
@@ -262,7 +361,7 @@ registry.registerPath({
   tags: ["Products"],
   summary: "List products for a Live",
   description:
-    "Returns products associated with a Live owned by the authenticated creator, oldest first.",
+    "Returns products associated with a Live owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -371,7 +470,7 @@ registry.registerPath({
     400: errorResponse("Invalid product ID."),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Product not found or not owned by the creator."),
-    409: errorResponse("Product has order history and cannot be deleted."),
+    409: errorResponse("Product has order history, pending uploads, or is already being deleted."),
   },
 });
 

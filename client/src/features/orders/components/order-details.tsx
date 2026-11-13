@@ -8,6 +8,7 @@ import { buttonClassName } from "../../../components/ui/button-styles";
 import { formatPesewas } from "../../../lib/format-money";
 import type { Live } from "../../lives/api/lives-api";
 import type { SellerOrder } from "../api/seller-orders-api";
+import { OrderProductThumbnail } from "./order-product-thumbnail";
 
 function dateLabel(value: string | null) {
   if (!value) return "Date unavailable";
@@ -35,13 +36,14 @@ export function OrderDetails({ live, order, onBack, paymentAction }: { live: Liv
           <h2 className="text-lg font-bold text-ink">Items ordered</h2>
           {order.items.length === 0 ? <p className="mt-3 text-sm text-ink-muted">No order lines are available.</p> : (
             <ul className="mt-4 divide-y divide-border border-y border-border">{order.items.map((item) => (
-              <li className="grid gap-2 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start" key={item.id}>
-                <div>
-                  <p className="font-semibold text-ink">{item.productName}</p>
+              <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-start" key={item.id}>
+                <OrderProductThumbnail imageUrl={item.productImageUrl} productName={item.productName} size="large" />
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-ink">{item.productName}</p>
                   {optionLabels(item.selectedOptions).length > 0 && <ul className="mt-1 flex flex-wrap gap-x-3 text-xs text-ink-muted">{optionLabels(item.selectedOptions).map(([name, selected]) => <li key={name}>{name}: {selected}</li>)}</ul>}
                   <p className="mt-1 text-sm text-ink-muted">Quantity {item.quantity} · {formatPesewas(item.unitPrice)} each</p>
                 </div>
-                <p className="font-semibold tabular-nums text-ink">{formatPesewas(item.unitPrice * item.quantity)}</p>
+                <p className="col-start-2 font-semibold tabular-nums text-ink sm:col-start-auto">{formatPesewas(item.unitPrice * item.quantity)}</p>
               </li>
             ))}</ul>
           )}

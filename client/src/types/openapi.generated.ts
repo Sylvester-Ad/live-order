@@ -101,46 +101,18 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload or replace a product image
-         * @description Uploads a JPEG, PNG, or WebP image up to 5 MB for a product owned by the authenticated creator.
+         * Deprecated product image upload
+         * @description This legacy unkeyed upload route is retired. Use the idempotent /images endpoint.
          */
         post: {
             parameters: {
                 query?: never;
                 header?: never;
-                path: {
-                    liveId: string;
-                    productId: string;
-                };
+                path?: never;
                 cookie?: never;
             };
-            requestBody: {
-                content: {
-                    "multipart/form-data": {
-                        /** Format: binary */
-                        image: string;
-                    };
-                };
-            };
+            requestBody?: never;
             responses: {
-                /** @description Image uploaded successfully. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ProductSuccessResponse"];
-                    };
-                };
-                /** @description Invalid image upload. */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorResponse"];
-                    };
-                };
                 /** @description Authentication is required. */
                 401: {
                     headers: {
@@ -150,35 +122,8 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description Product not found or not owned by the creator. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorResponse"];
-                    };
-                };
-                /** @description Image exceeds the 5 MB limit. */
-                413: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorResponse"];
-                    };
-                };
-                /** @description Image storage provider failed. */
-                502: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorResponse"];
-                    };
-                };
-                /** @description Image storage is not configured. */
-                503: {
+                /** @description This unkeyed upload route has been retired. */
+                410: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -188,7 +133,10 @@ export interface paths {
                 };
             };
         };
-        /** Remove a product image */
+        /**
+         * Remove the primary product image
+         * @description Compatibility endpoint that removes the current primary image, if present. Use the image-specific endpoint to remove a chosen image or retry cleanup for an image already being deleted.
+         */
         delete: {
             parameters: {
                 query?: never;
@@ -228,8 +176,416 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lives/{liveId}/products/{productId}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a product image
+         * @description Uploads one JPEG, PNG, or WebP image up to 5 MB to a product owned by the authenticated creator. Reuse the required Idempotency-Key UUID and the exact same file bytes to safely retry an ambiguous upload. After a browser refresh, completed uploads can be recovered through the status endpoint. A pending upload requires selecting the original file again and retrying with the same key and bytes; uploaded file contents are not retained by the application. A product can have up to three active or pending images.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description UUID identifying this logical image upload; reuse it with the original file bytes when retrying. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    liveId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        image: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Existing upload result returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductImageUploadSuccessResponse"];
+                    };
+                };
+                /** @description Image uploaded and finalized. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductImageUploadSuccessResponse"];
+                    };
+                };
+                /** @description Invalid image, UUID, or upload request. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Live or product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The key was reused with different input, the product is deleting, or the image limit was reached. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description This upload result was previously deleted. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image exceeds the 5 MB limit. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
                 /** @description Image storage provider failed. */
                 502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image storage or upload finalization is temporarily unavailable. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lives/{liveId}/product-image-uploads/{idempotencyKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get product image upload status
+         * @description Completed uploads return their saved image result. Pending uploads can be resumed by selecting the original file again and retrying the upload with the same idempotency key and exact file bytes.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    idempotencyKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pending or completed upload status returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductImageUploadStatusSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Live ID or idempotency key. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Upload not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The image created by this request has since been deleted. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lives/{liveId}/products/{productId}/image-uploads/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List pending product image uploads */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pending upload attempts returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PendingProductImageUploadsSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}/primary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Select a product's primary image
+         * @description Sets an active image belonging to the authenticated creator's product as its primary image and returns the updated product with its active image gallery.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    productId: string;
+                    imageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Primary image selected. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Live, product, or image ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product or product image not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The product is deleting or the image is not active. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a product image
+         * @description Logically removes an active image from a product owned by the authenticated creator, releases its slot once, and attempts provider cleanup. Repeating the request for a deleting image retries provider cleanup without releasing the slot again.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    productId: string;
+                    imageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Updated product returned; provider cleanup is attempted synchronously. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Live, product, or image ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product or product image not found. */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -574,7 +930,7 @@ export interface paths {
         };
         /**
          * Get a public Live
-         * @description Returns an active Live and its public product information. No creator session is required.
+         * @description Returns an active Live and its public product information. Product images include active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image. No provider storage identifiers are exposed, and no creator session is required.
          */
         get: {
             parameters: {
@@ -634,7 +990,7 @@ export interface paths {
         };
         /**
          * List products for a Live
-         * @description Returns products associated with a Live owned by the authenticated creator, oldest first.
+         * @description Returns products associated with a Live owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.
          */
         get: {
             parameters: {
@@ -841,7 +1197,7 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description Product has order history and cannot be deleted. */
+                /** @description Product has order history, pending uploads, or is already being deleted. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -1297,6 +1653,14 @@ export interface components {
             price: number;
             options?: unknown;
             stockQuantity: number;
+            images: {
+                id: string;
+                /** Format: uri */
+                url: string;
+                /** Format: date-time */
+                createdAt: string | null;
+                isPrimary: boolean;
+            }[];
             image: {
                 id: string;
                 /** Format: uri */
@@ -1317,6 +1681,14 @@ export interface components {
                 price: number;
                 options?: unknown;
                 stockQuantity: number;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
                 image: {
                     id: string;
                     /** Format: uri */
@@ -1338,6 +1710,14 @@ export interface components {
                 price: number;
                 options?: unknown;
                 stockQuantity: number;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
                 image: {
                     id: string;
                     /** Format: uri */
@@ -1349,6 +1729,86 @@ export interface components {
                 createdAt: string | null;
                 /** Format: date-time */
                 updatedAt: string | null;
+            }[];
+        };
+        ProductImageUploadSuccessResponse: {
+            data: {
+                product: {
+                    id: string;
+                    liveId: string;
+                    name: string;
+                    price: number;
+                    options?: unknown;
+                    stockQuantity: number;
+                    images: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                        isPrimary: boolean;
+                    }[];
+                    image: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                    } | null;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    /** Format: date-time */
+                    updatedAt: string | null;
+                };
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                };
+            };
+        };
+        ProductImageUploadStatusSuccessResponse: {
+            data: {
+                /** Format: uuid */
+                idempotencyKey: string;
+                productId: string;
+                /** @enum {string} */
+                status: "PENDING";
+                /** @enum {boolean} */
+                canResume: true;
+                /** Format: date-time */
+                createdAt: string | null;
+            } | {
+                /** Format: uuid */
+                idempotencyKey: string;
+                productId: string;
+                /** @enum {string} */
+                status: "COMPLETED";
+                /** @enum {boolean} */
+                canResume: false;
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                };
+                /** Format: date-time */
+                createdAt: string | null;
+            };
+        };
+        PendingProductImageUploadsSuccessResponse: {
+            data: {
+                /** Format: uuid */
+                idempotencyKey: string;
+                /** @enum {string} */
+                status: "PENDING";
+                /** @enum {boolean} */
+                canResume: true;
+                /** Format: date-time */
+                createdAt: string | null;
             }[];
         };
         CreateOrderRequest: {
@@ -1380,6 +1840,8 @@ export interface components {
                 id: string;
                 productId: string;
                 productName: string;
+                /** Format: uri */
+                productImageUrl: string | null;
                 unitPrice: number;
                 quantity: number;
                 selectedOptions?: unknown;
@@ -1402,6 +1864,8 @@ export interface components {
                     id: string;
                     productId: string;
                     productName: string;
+                    /** Format: uri */
+                    productImageUrl: string | null;
                     unitPrice: number;
                     quantity: number;
                     selectedOptions?: unknown;
@@ -1425,6 +1889,8 @@ export interface components {
                     id: string;
                     productId: string;
                     productName: string;
+                    /** Format: uri */
+                    productImageUrl: string | null;
                     unitPrice: number;
                     quantity: number;
                     selectedOptions?: unknown;
@@ -1450,6 +1916,14 @@ export interface components {
                 options?: unknown;
                 stockQuantity: number;
                 available: boolean;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
                 image: {
                     id: string;
                     /** Format: uri */
@@ -1475,6 +1949,14 @@ export interface components {
                     options?: unknown;
                     stockQuantity: number;
                     available: boolean;
+                    images: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                        isPrimary: boolean;
+                    }[];
                     image: {
                         id: string;
                         /** Format: uri */

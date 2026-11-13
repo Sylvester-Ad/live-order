@@ -1,8 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { productsApi, type CreateProductInput, type Product, type UpdateProductInput } from "../api/products-api";
+import {
+  productsApi,
+  type CreateProductInput,
+  type Product,
+  type ProductImageUploadResult,
+  type UpdateProductInput,
+} from "../api/products-api";
+import { publicLiveQueryKey } from "../../public-live/hooks/use-public-live";
 
 export const productsQueryKey = (liveId: string) => ["products", liveId] as const;
+export const productImageUploadsQueryKey = (liveId: string, productId: string) =>
+  ["product-image-uploads", liveId, productId] as const;
+export const productImageUploadStatusQueryKey = (liveId: string, idempotencyKey: string) =>
+  ["product-image-upload-status", liveId, idempotencyKey] as const;
 
 export function useProducts(
   liveId: string,
@@ -14,6 +25,41 @@ export function useProducts(
     ...options,
     enabled: Boolean(liveId) && (options.enabled ?? true),
   });
+}
+
+export function usePendingProductImageUploads(liveId: string, productId: string, enabled = true) {
+  return useQuery({
+    queryKey: productImageUploadsQueryKey(liveId, productId),
+    queryFn: ({ signal }) => productsApi.listPendingImageUploads(liveId, productId, signal),
+    enabled: Boolean(liveId && productId) && enabled,
+  });
+}
+
+export function useProductImageUploadStatus(
+  liveId: string,
+  idempotencyKey: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: productImageUploadStatusQueryKey(liveId, idempotencyKey),
+    queryFn: ({ signal }) => productsApi.getImageUploadStatus(liveId, idempotencyKey, signal),
+    enabled: Boolean(liveId && idempotencyKey) && enabled,
+  });
+}
+
+async function updateProductAfterImageMutation(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updatedProduct: Product,
+  liveId: string,
+) {
+  const queryKey = productsQueryKey(liveId);
+  queryClient.setQueryData<Product[]>(queryKey, (products) =>
+    products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
+  );
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey, exact: true }),
+    queryClient.invalidateQueries({ queryKey: publicLiveQueryKey() }),
+  ]);
 }
 
 export function useCreateProduct() {
@@ -77,29 +123,50 @@ export function useDeleteProduct() {
 export function useUploadProductImage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ liveId, productId, file }: { liveId: string; productId: string; file: File }) =>
-      productsApi.uploadImage(liveId, productId, file),
-    onSuccess: async (updatedProduct, { liveId }) => {
-      const queryKey = productsQueryKey(liveId);
-      queryClient.setQueryData<Product[]>(queryKey, (products) =>
-        products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+    mutationFn: ({
+      liveId,
+      productId,
+      file,
+      idempotencyKey,
+    }: {
+      liveId: string;
+      productId: string;
+      file: File;
+      idempotencyKey: string;
+    }) => productsApi.uploadImage(liveId, productId, file, idempotencyKey),
+    onSuccess: async (result: ProductImageUploadResult, { liveId, productId, idempotencyKey }) => {
+      await Promise.all([
+        updateProductAfterImageMutation(queryClient, result.product, liveId),
+        queryClient.invalidateQueries({
+          queryKey: productImageUploadsQueryKey(liveId, productId),
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: productImageUploadStatusQueryKey(liveId, idempotencyKey),
+          exact: true,
+        }),
+      ]);
     },
+  });
+}
+
+export function useSelectPrimaryProductImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ liveId, productId, imageId }: { liveId: string; productId: string; imageId: string }) =>
+      productsApi.selectPrimaryImage(liveId, productId, imageId),
+    onSuccess: async (updatedProduct, { liveId }) =>
+      updateProductAfterImageMutation(queryClient, updatedProduct, liveId),
   });
 }
 
 export function useRemoveProductImage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ liveId, productId }: { liveId: string; productId: string }) =>
-      productsApi.removeImage(liveId, productId),
+    mutationFn: ({ liveId, productId, imageId }: { liveId: string; productId: string; imageId: string }) =>
+      productsApi.removeImage(liveId, productId, imageId),
     onSuccess: async (updatedProduct, { liveId }) => {
-      const queryKey = productsQueryKey(liveId);
-      queryClient.setQueryData<Product[]>(queryKey, (products) =>
-        products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+      await updateProductAfterImageMutation(queryClient, updatedProduct, liveId);
     },
   });
 }

@@ -37,6 +37,7 @@ export const orderResponseSchema = z.object({
       id: z.string(),
       productId: z.string(),
       productName: z.string(),
+      productImageUrl: z.string().url().nullable(),
       unitPrice: z.number().int(),
       quantity: z.number().int(),
       selectedOptions: z.unknown().nullable(),

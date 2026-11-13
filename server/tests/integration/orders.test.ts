@@ -160,6 +160,63 @@ describe("Orders API", () => {
     );
   });
 
+  it("snapshots each purchased product's primary image and leaves missing images empty", async () => {
+    const shirtPrimary = await prisma.productImage.create({
+      data: {
+        productId: tShirtId,
+        url: "https://images.example/shirt-primary.png",
+        storageId: "images/shirt-primary",
+        provider: "CLOUDINARY",
+        isPrimary: true,
+      },
+    });
+    await prisma.productImage.create({
+      data: {
+        productId: tShirtId,
+        url: "https://images.example/shirt-secondary.png",
+        storageId: "images/shirt-secondary",
+        provider: "CLOUDINARY",
+        isPrimary: false,
+      },
+    });
+
+    const created = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [
+          { productId: tShirtId, quantity: 1, selectedOptions: { Size: "M", Colour: "Black" } },
+          { productId: capId, quantity: 1 },
+        ],
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: tShirtId, productImageUrl: shirtPrimary.url }),
+      expect.objectContaining({ productId: capId, productImageUrl: null }),
+    ]));
+
+    await prisma.productImage.updateMany({
+      where: { productId: tShirtId },
+      data: { isPrimary: false },
+    });
+    await prisma.productImage.updateMany({
+      where: { productId: tShirtId, storageId: "images/shirt-secondary" },
+      data: { isPrimary: true },
+    });
+
+    const listedOrders = await request(app)
+      .get(`/api/v1/lives/${liveId}/orders`)
+      .set("Cookie", cookie);
+    expect(listedOrders.status).toBe(200);
+    expect(listedOrders.body.data[0].items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: tShirtId, productImageUrl: shirtPrimary.url }),
+      expect.objectContaining({ productId: capId, productImageUrl: null }),
+    ]));
+  });
+
   it("rejects an order when the Live is still a draft", async () => {
     const draftResponse = await request(app)
       .post("/api/v1/lives")
@@ -316,6 +373,60 @@ describe("Orders API", () => {
     expect(results.find((result) => result.status === 409)?.body.error.code).toBe("INSUFFICIENT_STOCK");
     expect(await prisma.order.count()).toBe(1);
     expect((await prisma.product.findUnique({ where: { id: capId } }))?.stockQuantity).toBe(0);
+  });
+
+  it("rejects ordering a product already marked for deletion", async () => {
+    await prisma.product.update({
+      where: { id: capId },
+      data: { isDeleting: true },
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: capId, quantity: 1 }],
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("PRODUCT_DELETING");
+    expect(await prisma.order.count()).toBe(0);
+    expect(await prisma.product.findUnique({ where: { id: capId } }))
+      .toMatchObject({ isDeleting: true, stockQuantity: 10 });
+  });
+
+  it("serializes order creation against product deletion", async () => {
+    const orderRequest = request(app)
+      .post(`/api/v1/lives/${liveId}/orders`)
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: capId, quantity: 1 }],
+      });
+    const deletionRequest = request(app)
+      .delete(`/api/v1/lives/${liveId}/products/${capId}`)
+      .set("Cookie", cookie);
+
+    const [order, deletion] = await Promise.all([orderRequest, deletionRequest]);
+    const savedProduct = await prisma.product.findUnique({ where: { id: capId } });
+    const savedOrderCount = await prisma.order.count();
+
+    if (deletion.status === 204) {
+      expect(order.status).toBe(400);
+      expect(order.body.error.code).toBe("INVALID_PRODUCT");
+      expect(savedProduct).toBeNull();
+      expect(savedOrderCount).toBe(0);
+      return;
+    }
+
+    expect(deletion.status).toBe(409);
+    expect(deletion.body.error.code).toBe("PRODUCT_IN_USE");
+    expect(order.status).toBe(201);
+    expect(savedProduct).toMatchObject({ isDeleting: false, stockQuantity: 9 });
+    expect(savedOrderCount).toBe(1);
   });
 
   it("returns the original order for an identical idempotent retry", async () => {
