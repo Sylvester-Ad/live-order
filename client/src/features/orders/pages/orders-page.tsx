@@ -11,6 +11,7 @@ import { formatPesewas } from "../../../lib/format-money";
 import { useLives } from "../../lives/hooks/use-lives";
 import { useExportOrdersCsv, useMarkOrderPaid, useSellerOrders } from "../hooks/use-seller-orders";
 import { OrderDetails } from "../components/order-details";
+import { OrderProductThumbnail } from "../components/order-product-thumbnail";
 import { OrderPaymentAction } from "../components/order-payment-action";
 
 function formatOrderDate(value: string | null) {
@@ -114,7 +115,16 @@ export function OrdersPage() {
                     <td className="px-4 py-4 font-mono font-semibold text-ink">{order.reference}</td>
                     <td className="px-4 py-4 text-ink">{order.customerName}</td>
                     <td className="px-4 py-4 text-ink-muted">{formatOrderDate(order.createdAt)}</td>
-                    <td className="px-4 py-4 text-ink-muted">{order.items.length} {order.items.length === 1 ? "line" : "lines"}</td>
+                    <td className="px-4 py-4 text-ink-muted">
+                      <div aria-label={`${order.reference} ordered products`} className="flex items-center gap-2">
+                        <div className="flex -space-x-2">
+                          {order.items.slice(0, 3).map((item) => (
+                            <OrderProductThumbnail imageUrl={item.productImageUrl} key={item.id} productName={item.productName} />
+                          ))}
+                        </div>
+                        <span>{order.items.length} {order.items.length === 1 ? "line" : "lines"}{order.items.length > 3 ? ` · +${order.items.length - 3} more` : ""}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-4 font-semibold tabular-nums text-ink">{formatPesewas(order.totalAmount)}</td>
                     <td className="px-4 py-4"><StatusBadge tone={order.paymentStatus === "PAID" ? "paid" : "pending"}>{order.paymentStatus === "PAID" ? "Paid" : "Unpaid"}</StatusBadge></td>
                     <td className="px-4 py-4"><div className="flex justify-end gap-2"><Link className={buttonClassName("secondary", "sm")} to={`/lives/${liveId}/orders/${order.id}`}>View order</Link>{order.paymentStatus === "PENDING" && <OrderPaymentAction orderId={order.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} />}</div></td>
@@ -127,6 +137,14 @@ export function OrdersPage() {
             <li key={order.id}>
               <Card><CardContent className="grid gap-3">
                 <div className="flex items-start justify-between gap-3"><div><p className="font-mono font-bold text-ink">{order.reference}</p><p className="text-sm text-ink-muted">{order.customerName}</p></div><StatusBadge tone={order.paymentStatus === "PAID" ? "paid" : "pending"}>{order.paymentStatus === "PAID" ? "Paid" : "Unpaid"}</StatusBadge></div>
+                <div aria-label={`${order.reference} ordered products`} className="flex items-center gap-2">
+                  <div className="flex -space-x-2">
+                    {order.items.slice(0, 3).map((item) => (
+                      <OrderProductThumbnail imageUrl={item.productImageUrl} key={item.id} productName={item.productName} />
+                    ))}
+                  </div>
+                  <span className="text-sm text-ink-muted">{order.items.length} {order.items.length === 1 ? "line" : "lines"}{order.items.length > 3 ? ` · +${order.items.length - 3} more` : ""}</span>
+                </div>
                 <div className="flex justify-between gap-3 text-sm"><span className="text-ink-muted">{formatOrderDate(order.createdAt)} · {order.items.length} {order.items.length === 1 ? "line" : "lines"}</span><span className="font-bold tabular-nums text-ink">{formatPesewas(order.totalAmount)}</span></div>
                 <div className="flex flex-wrap gap-2"><Link className={buttonClassName("secondary", "sm")} to={`/lives/${liveId}/orders/${order.id}`}>View order</Link>{order.paymentStatus === "PENDING" && <OrderPaymentAction orderId={order.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} />}</div>
               </CardContent></Card>

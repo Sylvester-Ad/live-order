@@ -15,6 +15,11 @@ import {
 import {
   createProductSchema,
   productResponseSchema,
+  productImageResponseSchema,
+  productGalleryImageResponseSchema,
+  productImageUploadStatusSchema,
+  productImageUploadSuccessSchema,
+  pendingProductImageUploadsSchema,
   updateProductFieldsSchema,
 } from "../modules/products/products.schemas.js";
 
@@ -100,6 +105,18 @@ export const productsSuccessSchema = z.object({
   data: z.array(productResponseSchema),
 });
 
+export const productImageUploadSuccessResponseSchema = z.object({
+  data: productImageUploadSuccessSchema,
+});
+
+export const productImageUploadStatusSuccessSchema = z.object({
+  data: productImageUploadStatusSchema,
+});
+
+export const pendingProductImageUploadsSuccessSchema = z.object({
+  data: pendingProductImageUploadsSchema,
+});
+
 export const orderSuccessSchema = z.object({
   data: orderResponseSchema,
 });
@@ -124,11 +141,8 @@ export const publicLiveResponseSchema = z.object({
       options: z.unknown().nullable(),
       stockQuantity: z.number().int().min(0),
       available: z.boolean(),
-      image: z.object({
-        id: z.string(),
-        url: z.url(),
-        createdAt: z.coerce.date(),
-      }).nullable(),
+      images: z.array(productGalleryImageResponseSchema),
+      image: productImageResponseSchema.nullable(),
     }),
   ),
 });
@@ -156,6 +170,9 @@ registry.register("UpdateProductRequest", updateProductOpenApiSchema);
 registry.register("ProductResponse", productResponseSchema);
 registry.register("ProductSuccessResponse", productSuccessSchema);
 registry.register("ProductsSuccessResponse", productsSuccessSchema);
+registry.register("ProductImageUploadSuccessResponse", productImageUploadSuccessResponseSchema);
+registry.register("ProductImageUploadStatusSuccessResponse", productImageUploadStatusSuccessSchema);
+registry.register("PendingProductImageUploadsSuccessResponse", pendingProductImageUploadsSuccessSchema);
 
 registry.register("CreateOrderRequest", createOrderOpenApiSchema);
 registry.register("OrderResponse", orderResponseSchema);

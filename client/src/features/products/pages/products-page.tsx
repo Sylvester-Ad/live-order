@@ -128,43 +128,48 @@ export function ProductsPage() {
         />
       ) : (
         <ul className="grid gap-4 md:grid-cols-2">
-          {liveProducts.map((product) => (
-            <li key={product.id}>
-              <Card className="h-full">
-                <CardContent className="flex h-full flex-col">
-                  {product.image ? (
-                    <img alt={`${product.name}`} className="mb-4 aspect-4/3 w-full rounded-panel bg-canvas object-cover" src={product.image.url} />
-                  ) : (
-                    <div className="mb-4 grid aspect-4/3 place-items-center rounded-panel bg-canvas text-sm text-ink-muted">No product image</div>
-                  )}
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <h2 className="min-w-0 break-words text-lg font-bold text-ink">{product.name}</h2>
-                    <p className="shrink-0 text-lg font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
-                  </div>
-                  <p className={`mt-2 text-sm font-semibold ${product.stockQuantity === 0 ? "text-danger-700" : product.stockQuantity <= 5 ? "text-status-warn-ink" : "text-ink-muted"}`}>
-                    {product.stockQuantity === 0 ? "Out of stock" : product.stockQuantity <= 5 ? `Low stock · ${product.stockQuantity} left` : `${product.stockQuantity} in stock`}
-                  </p>
-                  <ProductOptions options={product.options} />
-                  <div className="mt-auto flex flex-wrap gap-2 pt-5">
-                    <Link to={`/lives/${liveId}/products/${encodeURIComponent(product.id)}/edit`}>
-                      <Button size="sm" variant="secondary">Edit</Button>
-                    </Link>
-                    <Button
-                      onClick={() => {
-                        deleteProduct.reset();
-                        setSelectedProduct(product);
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="danger"
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
+          {liveProducts.map((product) => {
+            const primaryImage = product.images.find((image) => image.isPrimary) ?? product.images[0];
+            return (
+              <li key={product.id}>
+                <Card className="h-full">
+                  <CardContent className="flex h-full gap-3 sm:gap-4">
+                    {primaryImage ? (
+                      <img alt={product.name} className="size-20 shrink-0 rounded-panel bg-canvas object-cover sm:size-24" loading="lazy" src={primaryImage.url} />
+                    ) : (
+                      <div className="grid size-20 shrink-0 place-items-center rounded-panel bg-canvas text-center text-xs text-ink-muted sm:size-24">No image</div>
+                    )}
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                        <h2 className="min-w-0 break-words text-base font-bold text-ink sm:text-lg">{product.name}</h2>
+                        <p className="shrink-0 font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
+                      </div>
+                      <p className={`mt-1 text-xs font-semibold sm:text-sm ${product.stockQuantity === 0 ? "text-danger-700" : product.stockQuantity <= 5 ? "text-status-warn-ink" : "text-ink-muted"}`}>
+                        {product.stockQuantity === 0 ? "Out of stock" : product.stockQuantity <= 5 ? `Low stock · ${product.stockQuantity} left` : `${product.stockQuantity} in stock`}
+                      </p>
+                      <ProductOptions options={product.options} />
+                      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+                      <Link to={`/lives/${liveId}/products/${encodeURIComponent(product.id)}/edit`}>
+                        <Button size="sm" variant="secondary">Edit</Button>
+                      </Link>
+                      <Button
+                        onClick={() => {
+                          deleteProduct.reset();
+                          setSelectedProduct(product);
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="danger"
+                      >
+                        Delete
+                      </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </li>
+            );
+          })}
         </ul>
       )}
 

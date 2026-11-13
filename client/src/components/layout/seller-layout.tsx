@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useMatch, useNavigate } from "react-router-dom";
 
 import { useCurrentCreator, useLogout } from "../../features/auth/hooks/use-auth";
 import { cx } from "../../lib/cx";
@@ -7,16 +7,24 @@ import { Button } from "../ui/button";
 import { Notice } from "../feedback/feedback";
 import { Brand } from "./brand";
 
-const navigation = [
+const primaryNavigation = [
   { label: "Dashboard", to: "/", end: true },
   { label: "Lives", to: "/lives", end: false },
 ];
 
 export function SellerLayout() {
+  const liveId = useMatch("/lives/:liveId/*")?.params.liveId;
   const [logoutError, setLogoutError] = useState(false);
   const creator = useCurrentCreator();
   const logout = useLogout();
   const navigate = useNavigate();
+  const navigation = liveId
+    ? [
+        ...primaryNavigation,
+        { label: "Products", to: `/lives/${liveId}/products`, end: false },
+        { label: "Orders", to: `/lives/${liveId}/orders`, end: false },
+      ]
+    : primaryNavigation;
 
   async function handleLogout() {
     setLogoutError(false);
@@ -40,7 +48,7 @@ export function SellerLayout() {
             <NavLink
               className={({ isActive }) =>
                 cx(
-                  "rounded-control px-4 py-3 text-sm font-semibold transition-colors",
+                  "rounded-control px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-inset",
                   isActive
                     ? "bg-brand-50 text-brand-800"
                     : "text-ink-muted hover:bg-canvas hover:text-ink",
@@ -82,23 +90,6 @@ export function SellerLayout() {
             <div className="lg:hidden">
               <Brand />
             </div>
-            <nav aria-label="Seller navigation" className="hidden items-center gap-1 sm:flex lg:hidden">
-              {navigation.map((item) => (
-                <NavLink
-                  className={({ isActive }) =>
-                    cx(
-                      "rounded-control px-3 py-2 text-sm font-semibold",
-                      isActive ? "bg-brand-50 text-brand-800" : "text-ink-muted hover:text-ink",
-                    )
-                  }
-                  end={item.end}
-                  key={item.to}
-                  to={item.to}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
             <div className="ml-auto flex items-center gap-3">
               <span className="hidden text-sm font-medium text-ink-muted sm:block">
                 {creator.data?.name}
@@ -113,13 +104,13 @@ export function SellerLayout() {
               </Button>
             </div>
           </div>
-          <nav aria-label="Seller navigation" className="mx-auto mt-3 flex max-w-6xl gap-2 sm:hidden">
+          <nav aria-label="Seller navigation" className={`fixed inset-x-0 bottom-0 z-30 grid ${navigation.length === 4 ? "grid-cols-4" : "grid-cols-2"} border-t border-border bg-surface px-2 pt-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_12px_rgb(0_0_0_/_0.04)] lg:hidden`}>
             {navigation.map((item) => (
               <NavLink
                 className={({ isActive }) =>
                   cx(
-                    "flex-1 rounded-control px-3 py-2 text-center text-sm font-semibold",
-                    isActive ? "bg-brand-50 text-brand-800" : "text-ink-muted",
+                    "flex min-h-14 flex-col items-center justify-center rounded-control px-1 text-center text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-inset",
+                    isActive ? "bg-brand-50 text-brand-800" : "text-ink-muted hover:bg-canvas hover:text-ink",
                   )
                 }
                 end={item.end}
@@ -132,7 +123,7 @@ export function SellerLayout() {
           </nav>
         </header>
 
-        <main className="mx-auto min-h-[calc(100vh-73px)] max-w-6xl px-4 py-7 sm:px-7 sm:py-9 lg:px-10">
+        <main className="mx-auto min-h-[calc(100vh-73px)] max-w-6xl px-4 py-7 pb-24 sm:px-7 sm:py-9 sm:pb-24 lg:px-10 lg:pb-9">
           {logoutError && (
             <div className="mb-6">
               <Notice title="We couldn't sign you out. Try again." />

@@ -40,6 +40,7 @@ export const routeConfig: RouteObject[] = [
           { path: "lives/:liveId", element: <LiveWorkspacePage /> },
           { path: "lives/:liveId/products", element: <ProductsPage /> },
           { path: "lives/:liveId/products/new", element: <ProductFormPage /> },
+          { path: "lives/:liveId/products/:productId/images", element: <ProductFormPage /> },
           { path: "lives/:liveId/products/:productId/edit", element: <ProductFormPage /> },
           {
             path: "lives/:liveId/orders",

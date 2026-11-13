@@ -5,7 +5,18 @@ import { describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../../../src/app/providers";
 import { createTestRouter } from "../../../src/app/router";
 
-const liveResponse = (stockQuantity = 7, tiktokLiveUrl: string | null = null) => ({
+type TestPublicImage = {
+  id: string;
+  url: string;
+  createdAt: string;
+  isPrimary: boolean;
+};
+
+const liveResponse = (
+  stockQuantity = 7,
+  tiktokLiveUrl: string | null = null,
+  images: TestPublicImage[] = [],
+) => ({
   data: {
     id: "live-1",
     name: "Friday collection",
@@ -20,7 +31,8 @@ const liveResponse = (stockQuantity = 7, tiktokLiveUrl: string | null = null) =>
         options: { Size: ["S", "M"] },
         stockQuantity,
         available: stockQuantity > 0,
-        image: null,
+        images,
+        image: images.find((image) => image.isPrimary) ?? null,
       },
       {
         id: "product-2",
@@ -29,6 +41,7 @@ const liveResponse = (stockQuantity = 7, tiktokLiveUrl: string | null = null) =>
         options: null,
         stockQuantity: 0,
         available: false,
+        images: [],
         image: null,
       },
     ],
@@ -64,6 +77,42 @@ function renderStorefront() {
 }
 
 describe("public customer ordering", () => {
+  it("shows a primary image first and allows customers to browse the product gallery", async () => {
+    const images = [
+      { id: "image-1", url: "https://images.example/first.png", createdAt: "2026-10-12T10:00:00.000Z", isPrimary: false },
+      { id: "image-2", url: "https://images.example/primary.png", createdAt: "2026-10-13T10:00:00.000Z", isPrimary: true },
+      { id: "image-3", url: "https://images.example/third.png", createdAt: "2026-10-14T10:00:00.000Z", isPrimary: false },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => response(liveResponse(7, null, images))));
+    renderStorefront();
+
+    expect(await screen.findByRole("img", { name: "Cotton shirt image 2" })).toHaveAttribute(
+      "src",
+      "https://images.example/primary.png",
+    );
+    const firstImageButton = screen.getByRole("button", { name: "Show image 1 of 3 for Cotton shirt" });
+    expect(firstImageButton).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(firstImageButton);
+
+    expect(screen.getByRole("img", { name: "Cotton shirt image 1" })).toHaveAttribute(
+      "src",
+      "https://images.example/first.png",
+    );
+    expect(firstImageButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Show image 2 of 3 for Cotton shirt" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("shows a clear fallback when public products have no images", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => response(liveResponse())));
+    renderStorefront();
+
+    expect(await screen.findAllByText("No product image")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Show image/ })).not.toBeInTheDocument();
+  });
+
   it("shows a live mobile cart summary and keeps the cart intact when the sheet closes", async () => {
     const fetchMock = vi.fn(async () => response(liveResponse()));
     vi.stubGlobal("fetch", fetchMock);

@@ -4,6 +4,7 @@ import { prisma } from "../../database/prisma.js";
 import { AppError } from "../../shared/errors/app-error.js";
 import { createWithOrderReference } from "./order-reference.js";
 import type { CreateOrderInput } from "./orders.schemas.js";
+import { getImageStorage } from "../products/image-storage/index.js";
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -87,17 +88,20 @@ export async function createOrder(
       // database predicate is the concurrency guard; a stale read cannot oversell.
       for (const [productId, quantity] of requestedQuantities) {
         const changed = await tx.product.updateMany({
-          where: { id: productId, liveId, stockQuantity: { gte: quantity } },
+          where: { id: productId, liveId, isDeleting: false, stockQuantity: { gte: quantity } },
           data: { stockQuantity: { decrement: quantity } },
         });
 
         if (changed.count === 0) {
           const product = await tx.product.findFirst({
             where: { id: productId, liveId },
-            select: { id: true },
+            select: { id: true, isDeleting: true },
           });
           if (!product) {
             throw new AppError(400, "INVALID_PRODUCT", "One or more products do not belong to this Live");
+          }
+          if (product.isDeleting) {
+            throw new AppError(409, "PRODUCT_DELETING", "One or more products are being deleted");
           }
           throw new AppError(409, "INSUFFICIENT_STOCK", "One or more products no longer have enough stock");
         }
@@ -122,7 +126,17 @@ export async function createOrder(
 
       const products = await tx.product.findMany({
         where: { id: { in: [...requestedQuantities.keys()] }, liveId: live.id },
-        select: { id: true, name: true, price: true, options: true },
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          options: true,
+          images: {
+            where: { state: "ACTIVE", isPrimary: true },
+            take: 1,
+            select: { url: true, storageId: true, provider: true },
+          },
+        },
       });
       const productById = new Map(products.map((product) => [product.id, product]));
 
@@ -144,6 +158,12 @@ export async function createOrder(
             connect: { id: product.id },
           },
           productName: product.name,
+          productImageUrl: product.images[0]
+            ? getImageStorage(product.images[0].provider).deliveryUrl(
+                product.images[0].storageId,
+                product.images[0].url,
+              )
+            : null,
           unitPrice: product.price,
           quantity: item.quantity,
           ...(item.selectedOptions !== undefined && {

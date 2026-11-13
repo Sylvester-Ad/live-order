@@ -26,6 +26,9 @@ const productOptionsSchema = z.record(
 const stockQuantitySchema = z.number().int().min(0).max(2_147_483_647);
 const productPriceSchema = z.number().int().positive().max(2_147_483_647);
 
+export const productCreationIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
+export const productImageUploadIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
+
 export const createProductSchema = z.object({
   name: z.string().trim().min(1).max(100),
   price: productPriceSchema,
@@ -49,6 +52,16 @@ export const updateProductSchema = updateProductFieldsSchema.refine(
 
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
+export const productImageResponseSchema = z.object({
+  id: z.string(),
+  url: z.url(),
+  createdAt: z.coerce.date(),
+});
+
+export const productGalleryImageResponseSchema = productImageResponseSchema.extend({
+  isPrimary: z.boolean(),
+});
+
 export const productResponseSchema = z.object({
   id: z.string(),
   liveId: z.string(),
@@ -56,11 +69,8 @@ export const productResponseSchema = z.object({
   price: z.number().int(),
   options: z.unknown().nullable(),
   stockQuantity: stockQuantitySchema,
-  image: z.object({
-    id: z.string(),
-    url: z.url(),
-    createdAt: z.coerce.date(),
-  }).nullable(),
+  images: z.array(productGalleryImageResponseSchema),
+  image: productImageResponseSchema.nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
@@ -68,3 +78,35 @@ export const productResponseSchema = z.object({
 export type ProductResponse = z.infer<typeof productResponseSchema>;
 
 export const productsResponseSchema = z.array(productResponseSchema);
+
+export const productImageUploadStatusSchema = z.discriminatedUnion("status", [
+  z.object({
+    idempotencyKey: z.uuid(),
+    productId: z.string(),
+    status: z.literal("PENDING"),
+    canResume: z.literal(true),
+    createdAt: z.coerce.date(),
+  }),
+  z.object({
+    idempotencyKey: z.uuid(),
+    productId: z.string(),
+    status: z.literal("COMPLETED"),
+    canResume: z.literal(false),
+    image: productImageResponseSchema,
+    createdAt: z.coerce.date(),
+  }),
+]);
+
+export const productImageUploadSuccessSchema = z.object({
+  product: productResponseSchema,
+  image: productImageResponseSchema,
+});
+
+export const pendingProductImageUploadSchema = z.object({
+  idempotencyKey: z.uuid(),
+  status: z.literal("PENDING"),
+  canResume: z.literal(true),
+  createdAt: z.coerce.date(),
+});
+
+export const pendingProductImageUploadsSchema = z.array(pendingProductImageUploadSchema);

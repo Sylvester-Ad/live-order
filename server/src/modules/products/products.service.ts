@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { prisma } from "../../database/prisma.js";
 import { AppError } from "../../shared/errors/app-error.js";
 import type {
@@ -6,14 +8,35 @@ import type {
 } from "./products.schemas.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { getImageStorage } from "./image-storage/index.js";
-import { identifyImageFormat } from "./product-images.service.js";
+import {
+  activeProductImagesInclude,
+  productWithImages,
+} from "./product-images.service.js";
 
 export async function createProduct(
   creatorId: string,
   liveId: string,
   input: CreateProductInput,
-  imageFile?: { buffer: Buffer; mimetype: string },
+  idempotencyKey: string,
 ) {
+  const normalizedInput = {
+    name: input.name.trim(),
+    price: input.price,
+    stockQuantity: input.stockQuantity ?? 0,
+    options: input.options ?? null,
+  };
+  const requestFingerprint = createHash("sha256")
+    .update(stableJson({ creatorId, liveId, ...normalizedInput }))
+    .digest("hex");
+
+  const existingProduct = await findIdempotentProduct(
+    idempotencyKey,
+    creatorId,
+    liveId,
+    requestFingerprint,
+  );
+  if (existingProduct) return existingProduct;
+
   const live = await prisma.live.findFirst({
     where: {
       id: liveId,
@@ -32,74 +55,104 @@ export async function createProduct(
     );
   }
 
-  const storage = imageFile ? getImageStorage() : undefined;
-  const storedImage = imageFile && storage
-    ? await storage.upload({
-        buffer: imageFile.buffer,
-        mimeType: identifyImageFormat(imageFile.buffer, imageFile.mimetype),
-      })
-    : undefined;
-
   try {
     const product = await prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
           liveId,
-          name: input.name,
+          name: normalizedInput.name,
           price: input.price,
-          stockQuantity: input.stockQuantity ?? 0,
-          options: input.options as Prisma.InputJsonValue | undefined,
+          stockQuantity: normalizedInput.stockQuantity,
+          ...(normalizedInput.options !== null && {
+            options: normalizedInput.options as Prisma.InputJsonValue,
+          }),
         },
       });
 
-      if (storedImage) {
-        await tx.productImage.create({
-          data: {
-            productId: created.id,
-            url: storedImage.url,
-            storageId: storedImage.storageId,
-            provider: storedImage.provider,
-            isPrimary: true,
-          },
-        });
-      }
+      await tx.productCreationRequest.create({
+        data: {
+          idempotencyKey,
+          creatorId,
+          liveId,
+          requestFingerprint,
+          productId: created.id,
+        },
+      });
 
       return tx.product.findUniqueOrThrow({
         where: { id: created.id },
-        include: { images: { where: { isPrimary: true }, take: 1 } },
+        include: activeProductImagesInclude,
       });
     });
 
-    return withPrimaryImage(product);
+    return productWithImages(product);
   } catch (error) {
-    if (storedImage && storage) {
-      try {
-        await storage.delete(storedImage.storageId);
-      } catch {
-        console.error("Product image cleanup failed", {
-          operation: "remove_failed_product_creation_upload",
-          provider: storedImage.provider,
-          storageId: storedImage.storageId,
-        });
+    try {
+      const committedProduct = await findIdempotentProduct(
+        idempotencyKey,
+        creatorId,
+        liveId,
+        requestFingerprint,
+      );
+      if (committedProduct) return committedProduct;
+    } catch (lookupError) {
+      if (
+        lookupError instanceof AppError &&
+        ["IDEMPOTENCY_KEY_REUSED", "IDEMPOTENCY_RESULT_DELETED"].includes(lookupError.code)
+      ) {
+        throw lookupError;
       }
     }
+
     throw error;
   }
 }
 
-function withPrimaryImage<T extends { images: Array<{ id: string; url: string; storageId: string; provider: string; createdAt: Date }> }>(product: T) {
-  const { images, ...fields } = product;
-  const image = images[0];
-  return {
-    ...fields,
-    image: image
-      ? {
-          id: image.id,
-          url: getImageStorage(image.provider).deliveryUrl(image.storageId, image.url),
-          createdAt: image.createdAt,
-        }
-      : null,
-  };
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError("Product request contains a non-JSON value");
+  return serialized;
+}
+
+async function findIdempotentProduct(
+  idempotencyKey: string,
+  creatorId: string,
+  liveId: string,
+  requestFingerprint: string,
+) {
+  const creationRequest = await prisma.productCreationRequest.findUnique({
+    where: { idempotencyKey },
+    include: {
+      product: { include: activeProductImagesInclude },
+    },
+  });
+
+  if (!creationRequest) return null;
+  if (
+    creationRequest.creatorId !== creatorId ||
+    creationRequest.liveId !== liveId ||
+    creationRequest.requestFingerprint !== requestFingerprint
+  ) {
+    throw new AppError(
+      409,
+      "IDEMPOTENCY_KEY_REUSED",
+      "This idempotency key was already used for a different product request",
+    );
+  }
+  if (!creationRequest.product) {
+    throw new AppError(
+      410,
+      "IDEMPOTENCY_RESULT_DELETED",
+      "The product created by this request has since been deleted",
+    );
+  }
+
+  return productWithImages(creationRequest.product);
 }
 
 export async function listProducts(creatorId: string, liveId: string) {
@@ -124,8 +177,8 @@ export async function listProducts(creatorId: string, liveId: string) {
     orderBy: {
       createdAt: "asc",
     },
-    include: { images: { where: { isPrimary: true }, take: 1 } },
-  }).then((products) => products.map(withPrimaryImage));
+    include: activeProductImagesInclude,
+  }).then((products) => products.map(productWithImages));
 }
 
 export async function updateProduct(
@@ -160,8 +213,8 @@ export async function updateProduct(
             : (input.options as Prisma.InputJsonValue),
       }),
     },
-    include: { images: { where: { isPrimary: true }, take: 1 } },
-  }).then(withPrimaryImage);
+    include: activeProductImagesInclude,
+  }).then(productWithImages);
 }
 
 function isForeignKeyConstraintError(error: unknown): boolean {
@@ -179,6 +232,33 @@ export async function deleteProduct(
   productId: string,
 ): Promise<void> {
   const images = await prisma.$transaction(async (tx) => {
+    const deletionGate = await tx.product.updateMany({
+      where: {
+        id: productId,
+        liveId,
+        isDeleting: false,
+        live: { creatorId },
+      },
+      data: { isDeleting: true },
+    });
+
+    if (deletionGate.count === 0) {
+      const product = await tx.product.findFirst({
+        where: {
+          id: productId,
+          liveId,
+          live: { creatorId },
+        },
+        select: { id: true },
+      });
+
+      if (!product) {
+        throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+      }
+
+      throw new AppError(409, "PRODUCT_DELETING", "This product is already being deleted");
+    }
+
     const product = await tx.product.findFirst({
       where: {
         id: productId,
@@ -192,6 +272,18 @@ export async function deleteProduct(
       throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
     }
 
+    const pendingImageUploads = await tx.productImageUploadRequest.count({
+      where: { productId: product.id, status: "PENDING" },
+    });
+
+    if (pendingImageUploads > 0) {
+      throw new AppError(
+        409,
+        "PENDING_IMAGE_UPLOADS",
+        "Resolve pending image uploads before deleting this product",
+      );
+    }
+
     const orderItemCount = await tx.orderItem.count({
       where: { productId: product.id },
     });
@@ -203,6 +295,11 @@ export async function deleteProduct(
         "Products with order history cannot be deleted",
       );
     }
+
+    await tx.productImageUploadRequest.updateMany({
+      where: { productId: product.id, status: "COMPLETED" },
+      data: { status: "DELETED" },
+    });
 
     try {
       await tx.product.delete({ where: { id: product.id } });

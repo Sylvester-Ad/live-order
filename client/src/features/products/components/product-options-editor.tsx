@@ -14,20 +14,23 @@ function newGroup(): ProductOptionGroup {
 export function ProductOptionsEditor({ groups, disabled = false, onChange }: Props) {
   return (
     <fieldset className="grid gap-4" disabled={disabled}>
-      <legend className="text-sm font-semibold text-ink">Choices customers can select (optional)</legend>
-      <p className="text-sm text-ink-muted">
-        Create groups such as Colour or Size. Customers can choose one value from each group when ordering. Stock is shared across all choices.
-      </p>
+      <legend className="text-sm font-semibold text-ink">Product options (optional)</legend>
+      <div className="grid gap-1 text-sm text-ink-muted">
+        <p><span className="font-semibold text-ink">Option group:</span> the question customers answer, such as Colour.</p>
+        <p><span className="font-semibold text-ink">Choices:</span> the answers they can pick, such as Black, White, Red, or Blue.</p>
+        <p>Customers choose one answer from each group. Stock is shared across all choices.</p>
+      </div>
       {groups.map((group, groupIndex) => (
         <section className="rounded-panel border border-border bg-white p-4" key={group.id} aria-label={`Option group ${groupIndex + 1}`}>
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid min-w-48 flex-1 gap-2 text-sm font-medium text-ink">
-              Group name
+              Option group name
               <input
                 aria-label={`Option group ${groupIndex + 1} name`}
                 className="min-h-11 rounded-control border border-border px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
                 maxLength={50}
                 onChange={(event) => onChange(groups.map((item) => item.id === group.id ? { ...item, name: event.target.value } : item))}
+                placeholder="e.g. Colour"
                 value={group.name}
               />
             </label>
@@ -40,7 +43,7 @@ export function ProductOptionsEditor({ groups, disabled = false, onChange }: Pro
               Remove group
             </Button>
           </div>
-          <div className="mt-4 grid gap-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {group.choices.map((choice, choiceIndex) => (
               <div className="flex items-end gap-3" key={`${group.id}-${choiceIndex}`}>
                 <label className="grid flex-1 gap-2 text-sm font-medium text-ink">
@@ -52,6 +55,7 @@ export function ProductOptionsEditor({ groups, disabled = false, onChange }: Pro
                     onChange={(event) => onChange(groups.map((item) => item.id === group.id
                       ? { ...item, choices: item.choices.map((value, index) => index === choiceIndex ? event.target.value : value) }
                       : item))}
+                    placeholder={choiceIndex === 0 ? "e.g. Black" : "Another choice"}
                     value={choice}
                   />
                 </label>
@@ -75,7 +79,7 @@ export function ProductOptionsEditor({ groups, disabled = false, onChange }: Pro
                 type="button"
                 variant="secondary"
               >
-                Add choice
+                Add another choice
               </Button>
             </div>
           </div>
@@ -86,6 +90,26 @@ export function ProductOptionsEditor({ groups, disabled = false, onChange }: Pro
           Add option group
         </Button>
       </div>
+      <section aria-label="Customer option preview" className="grid gap-2 rounded-panel border border-border bg-canvas p-4">
+        <h3 className="text-sm font-bold text-ink">Preview of customer choices</h3>
+        {groups.length === 0 ? (
+          <p className="text-sm text-ink-muted">No options added. Customers will order this product without choosing a variation.</p>
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {groups.map((group, groupIndex) => {
+              const choices = group.choices.map((choice) => choice.trim()).filter(Boolean);
+              return (
+                <li className="min-w-0" key={group.id}>
+                  <p className="text-sm font-semibold text-ink">{group.name.trim() || `Option group ${groupIndex + 1}`}</p>
+                  {choices.length > 0
+                    ? <p className="mt-1 break-words text-sm text-ink-muted">{choices.join(" · ")}</p>
+                    : <p className="mt-1 text-sm text-ink-muted">Add at least one choice.</p>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </fieldset>
   );
 }

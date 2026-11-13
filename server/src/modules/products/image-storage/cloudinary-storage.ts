@@ -1,11 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { v2 as cloudinary } from "cloudinary";
 
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { ImageStorage, SupportedImageMimeType, StoredProductImage } from "./image-storage.js";
-
-const folder = "liveorder/products";
 
 function configureCloudinary() {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
@@ -24,16 +21,25 @@ function configureCloudinary() {
 }
 
 export const cloudinaryStorage: ImageStorage = {
-  async upload({ buffer, mimeType }: { buffer: Buffer; mimeType: SupportedImageMimeType }): Promise<StoredProductImage> {
+  async upload({
+    buffer,
+    mimeType,
+    storageId,
+  }: {
+    buffer: Buffer;
+    mimeType: SupportedImageMimeType;
+    storageId: string;
+  }): Promise<StoredProductImage> {
     configureCloudinary();
 
     return new Promise<StoredProductImage>((resolve, reject) => {
       const upload = cloudinary.uploader.upload_stream(
         {
-          folder,
-          public_id: randomUUID(),
+          public_id: storageId,
           resource_type: "image",
-          overwrite: false,
+          overwrite: true,
+          unique_filename: false,
+          use_filename: false,
           allowed_formats: ["jpg", "png", "webp"],
           format: mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp",
         },

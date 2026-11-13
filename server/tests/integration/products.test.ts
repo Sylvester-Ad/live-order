@@ -4,13 +4,20 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../../src/database/prisma.js";
 import { hashAccessCode } from "../../src/shared/utils/credentials.js";
-import { AppError } from "../../src/shared/errors/app-error.js";
 import { cloudinaryStorage } from "../../src/modules/products/image-storage/cloudinary-storage.js";
+import { createProduct } from "../../src/modules/products/products.service.js";
 import { resetTestDatabase } from "../helpers/test-database.js";
+
+function createProductRequest(liveId: string, idempotencyKey = randomUUID()) {
+  return request(app)
+    .post(`/api/v1/lives/${liveId}/products`)
+    .set("Idempotency-Key", idempotencyKey);
+}
 
 describe("Products API", () => {
   let cookie: string;
   let liveId: string;
+  let creatorId: string;
 
   beforeEach(async () => {
     await resetTestDatabase();
@@ -23,6 +30,7 @@ describe("Products API", () => {
         accessCodeHash: await hashAccessCode(accessCode),
       },
     });
+    creatorId = creator.id;
 
     const loginResponse = await request(app)
       .post("/api/v1/creator/access")
@@ -56,59 +64,217 @@ describe("Products API", () => {
     await resetTestDatabase();
   });
 
-  it("creates a product and its primary image together after a successful upload", async () => {
-    const upload = vi.spyOn(cloudinaryStorage, "upload").mockResolvedValue({
-      url: "https://res.cloudinary.com/test-cloud/image/upload/v123/test/shirt.jpg",
-      storageId: "test/shirt",
-      provider: "CLOUDINARY",
-    });
+  it("rejects multipart product creation so image uploads remain a separate operation", async () => {
+    const upload = vi.spyOn(cloudinaryStorage, "upload");
     const response = await request(app)
       .post(`/api/v1/lives/${liveId}/products`)
       .set("Cookie", cookie)
       .field("product", JSON.stringify({ name: "Product with photo", price: 2500, stockQuantity: 4 }))
       .attach("image", Buffer.from([0xff, 0xd8, 0xff]), { filename: "shirt.jpg", contentType: "image/jpeg" });
 
-    expect(response.status).toBe(201);
-    expect(response.body.data).toMatchObject({ name: "Product with photo", stockQuantity: 4 });
-    expect(response.body.data.image.url).toContain("res.cloudinary.com");
-    expect(upload).toHaveBeenCalledOnce();
-    expect(await prisma.product.count()).toBe(1);
-    expect(await prisma.productImage.count({ where: { productId: response.body.data.id, isPrimary: true } })).toBe(1);
-  });
-
-  it("does not create the product when the image provider rejects the upload", async () => {
-    vi.spyOn(cloudinaryStorage, "upload").mockRejectedValue(
-      new AppError(502, "IMAGE_STORAGE_FAILED", "The product image could not be uploaded"),
-    );
-    const response = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
-      .set("Cookie", cookie)
-      .field("product", JSON.stringify({ name: "Product with photo", price: 2500 }))
-      .attach("image", Buffer.from([0xff, 0xd8, 0xff]), { filename: "shirt.jpg", contentType: "image/jpeg" });
-
-    expect(response.status).toBe(502);
-    expect(response.body.error.code).toBe("IMAGE_STORAGE_FAILED");
+    expect(response.status).toBe(415);
+    expect(response.body.error.code).toBe("UNSUPPORTED_PRODUCT_MEDIA_TYPE");
+    expect(upload).not.toHaveBeenCalled();
     expect(await prisma.product.count()).toBe(0);
     expect(await prisma.productImage.count()).toBe(0);
   });
 
-  it("does not create a product when the selected image bytes are not a valid JPEG", async () => {
+  it("creates a product without an image and does not call image storage", async () => {
     const upload = vi.spyOn(cloudinaryStorage, "upload");
     const response = await request(app)
       .post(`/api/v1/lives/${liveId}/products`)
       .set("Cookie", cookie)
-      .field("product", JSON.stringify({ name: "Product with photo", price: 2500 }))
-      .attach("image", Buffer.from("not jpeg"), { filename: "shirt.jpg", contentType: "image/jpeg" });
+      .set("Idempotency-Key", randomUUID())
+      .send({ name: "Product without photo", price: 2500 });
 
-    expect(response.status).toBe(400);
-    expect(response.body.error.code).toBe("INVALID_IMAGE_FORMAT");
+    expect(response.status).toBe(201);
+    expect(response.body.data).toMatchObject({ name: "Product without photo", image: null });
     expect(upload).not.toHaveBeenCalled();
+    expect(await prisma.product.count()).toBe(1);
+    expect(await prisma.productImage.count()).toBe(0);
+  });
+
+  it("returns the original product for a matching idempotent retry", async () => {
+    const idempotencyKey = randomUUID();
+    const first = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "  Classic shirt  ", price: 2500, stockQuantity: 3, options: { Size: ["S", "M"] } });
+    const retry = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ options: { Size: ["S", "M"] }, stockQuantity: 3, price: 2500, name: "Classic shirt" });
+
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.id).toBe(first.body.data.id);
+    expect(await prisma.product.count()).toBe(1);
+    expect(await prisma.productCreationRequest.count()).toBe(1);
+  });
+
+  it("rejects a matching key with a different normalized payload", async () => {
+    const idempotencyKey = randomUUID();
+    const first = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Classic shirt", price: 2500 });
+    const mismatch = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Classic shirt", price: 3000 });
+
+    expect(first.status).toBe(201);
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    expect(await prisma.product.count()).toBe(1);
+  });
+
+  it("returns one product for concurrent requests with the same key", async () => {
+    const idempotencyKey = randomUUID();
+    const create = () => createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Concurrent shirt", price: 2500, stockQuantity: 2 });
+    const results = await Promise.all([create(), create()]);
+
+    expect(results.map((result) => result.status)).toEqual([201, 201]);
+    expect(results[0].body.data.id).toBe(results[1].body.data.id);
+    expect(await prisma.product.count()).toBe(1);
+    expect(await prisma.productCreationRequest.count()).toBe(1);
+  });
+
+  it("associates the idempotency key with its creator and Live", async () => {
+    const idempotencyKey = randomUUID();
+    const first = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Classic shirt", price: 2500 });
+    const otherAccessCode = `LO-${randomUUID()}`;
+    const otherCreator = await prisma.creator.create({
+      data: {
+        name: "Other Creator",
+        accessCodeHash: await hashAccessCode(otherAccessCode),
+      },
+    });
+    const otherLogin = await request(app)
+      .post("/api/v1/creator/access")
+      .send({ accessCode: otherAccessCode });
+    const otherCookie = otherLogin.headers["set-cookie"][0].split(";")[0];
+    const reusedByOtherCreator = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", otherCookie)
+      .send({ name: "Classic shirt", price: 2500 });
+    const otherLive = await request(app)
+      .post("/api/v1/lives")
+      .set("Cookie", cookie)
+      .send({ name: "Other Live" });
+    const reusedInOtherLive = await createProductRequest(otherLive.body.data.id, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Classic shirt", price: 2500 });
+
+    expect(first.status).toBe(201);
+    expect(reusedByOtherCreator.status).toBe(409);
+    expect(reusedInOtherLive.status).toBe(409);
+    expect(reusedInOtherLive.body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    expect(await prisma.product.count()).toBe(1);
+  });
+
+  it("rejects product creation in another creator's Live", async () => {
+    const otherCreator = await prisma.creator.create({
+      data: {
+        name: "Other Creator",
+        accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`),
+      },
+    });
+    const otherLive = await prisma.live.create({
+      data: {
+        creatorId: otherCreator.id,
+        name: "Private Live",
+        slug: `private-${randomUUID()}`,
+      },
+    });
+    const response = await createProductRequest(otherLive.id)
+      .set("Cookie", cookie)
+      .send({ name: "Private product", price: 2500 });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe("LIVE_NOT_FOUND");
+    expect(await prisma.product.count()).toBe(0);
+    expect(await prisma.productCreationRequest.count()).toBe(0);
+  });
+
+  it("returns the committed product when the original response was lost", async () => {
+    const idempotencyKey = randomUUID();
+    const committed = await createProduct(
+      creatorId,
+      liveId,
+      { name: "Recovered shirt", price: 2500 },
+      idempotencyKey,
+    );
+    const replay = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Recovered shirt", price: 2500 });
+
+    expect(replay.status).toBe(201);
+    expect(replay.body.data.id).toBe(committed.id);
+    expect(await prisma.product.count()).toBe(1);
+  });
+
+  it("rolls back the product when persisting its idempotency record fails", async () => {
+    const idempotencyKey = randomUUID();
+    await prisma.$executeRaw`CREATE TRIGGER fail_product_creation_request
+      BEFORE INSERT ON "ProductCreationRequest"
+      BEGIN SELECT RAISE(ABORT, 'simulated idempotency write failure'); END`;
+
+    try {
+      const failed = await createProductRequest(liveId, idempotencyKey)
+        .set("Cookie", cookie)
+        .send({ name: "Atomic shirt", price: 2500 });
+
+      expect(failed.status).toBe(500);
+      expect(await prisma.product.count()).toBe(0);
+      expect(await prisma.productCreationRequest.count()).toBe(0);
+    } finally {
+      await prisma.$executeRaw`DROP TRIGGER IF EXISTS fail_product_creation_request`;
+    }
+
+    const retry = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Atomic shirt", price: 2500 });
+    expect(retry.status).toBe(201);
+    expect(await prisma.product.count()).toBe(1);
+    expect(await prisma.productCreationRequest.count()).toBe(1);
+  });
+
+  it("does not recreate a product after its idempotency result was deleted", async () => {
+    const idempotencyKey = randomUUID();
+    const created = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Deleted shirt", price: 2500 });
+    await prisma.product.delete({ where: { id: created.body.data.id } });
+
+    const retry = await createProductRequest(liveId, idempotencyKey)
+      .set("Cookie", cookie)
+      .send({ name: "Deleted shirt", price: 2500 });
+
+    expect(retry.status).toBe(410);
+    expect(retry.body.error.code).toBe("IDEMPOTENCY_RESULT_DELETED");
+    expect(await prisma.product.count()).toBe(0);
+    expect(await prisma.productCreationRequest.count()).toBe(1);
+    expect((await prisma.productCreationRequest.findUniqueOrThrow({ where: { idempotencyKey } })).productId).toBeNull();
+  });
+
+  it("requires a valid UUID idempotency key", async () => {
+    const missing = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .send({ name: "Classic shirt", price: 2500 });
+    const invalid = await request(app)
+      .post(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", "not-a-uuid")
+      .send({ name: "Classic shirt", price: 2500 });
+
+    expect(missing.status).toBe(400);
+    expect(invalid.status).toBe(400);
     expect(await prisma.product.count()).toBe(0);
   });
 
   it("creates a product belonging to the creator's Live", async () => {
-    const response = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const response = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({
         name: "Classic T-shirt",
@@ -140,8 +306,7 @@ describe("Products API", () => {
   });
 
   it("persists a nonzero stock quantity through product creation and listing", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Limited edition bag", price: 10000, stockQuantity: 5 })
       .expect(201);
@@ -158,8 +323,7 @@ describe("Products API", () => {
   });
 
   it("returns optimized Cloudinary image URLs from authenticated product listings", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Product photo", price: 5000 })
       .expect(201);
@@ -197,8 +361,7 @@ describe("Products API", () => {
   });
 
   it("rejects a product with an invalid price", async () => {
-    const response = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const response = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({
         name: "Classic T-shirt",
@@ -209,8 +372,7 @@ describe("Products API", () => {
   });
 
   it.each([-1, 1.5, 2_147_483_648])("rejects unsupported stock quantity %s", async (stockQuantity) => {
-    const response = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const response = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000, stockQuantity });
 
@@ -219,12 +381,10 @@ describe("Products API", () => {
   });
 
   it("rejects empty and duplicate product option groups and choices", async () => {
-    const emptyChoice = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const emptyChoice = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000, options: { Size: [""] } });
-    const duplicateChoice = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const duplicateChoice = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000, options: { Size: ["M", " m "] } });
 
@@ -233,8 +393,7 @@ describe("Products API", () => {
   });
 
   it("rejects product creation for a nonexistent Live", async () => {
-    const response = await request(app)
-      .post(`/api/v1/lives/${randomUUID()}/products`)
+    const response = await createProductRequest(randomUUID())
       .set("Cookie", cookie)
       .send({
         name: "Classic T-shirt",
@@ -245,12 +404,10 @@ describe("Products API", () => {
   });
 
   it("lists products belonging to the creator's Live", async () => {
-    await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000 });
-    await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Baseball Cap", price: 5000 });
 
@@ -304,8 +461,7 @@ describe("Products API", () => {
   });
 
   it("updates product fields and allows clearing options", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({
         name: "Classic T-shirt",
@@ -331,8 +487,7 @@ describe("Products API", () => {
   });
 
   it("rejects an empty product update", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000 });
 
@@ -373,8 +528,7 @@ describe("Products API", () => {
   });
 
   it("deletes a product without order history", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000 });
 
@@ -389,8 +543,7 @@ describe("Products API", () => {
   });
 
   it("prevents deleting a product referenced by order history", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000 });
     await prisma.order.create({
@@ -452,8 +605,7 @@ describe("Products API", () => {
   });
 
   it("requires authentication to update and delete products", async () => {
-    const created = await request(app)
-      .post(`/api/v1/lives/${liveId}/products`)
+    const created = await createProductRequest(liveId)
       .set("Cookie", cookie)
       .send({ name: "Classic T-shirt", price: 10000 });
 
