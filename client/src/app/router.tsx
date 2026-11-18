@@ -16,6 +16,7 @@ import { ProductsPage } from "../features/products/pages/products-page";
 import { ProductFormPage } from "../features/products/pages/product-form-page";
 import { PublicLivePage } from "../features/public-live/pages/public-live-page";
 import { OrdersPage } from "../features/orders/pages/orders-page";
+import { MobileMoneySettingsPage } from "../features/payments/pages/mobile-money-settings-page";
 import { NotFoundPage } from "./NotFoundPage";
 
 export const routeConfig: RouteObject[] = [
@@ -42,6 +43,7 @@ export const routeConfig: RouteObject[] = [
           { path: "lives/:liveId/products/new", element: <ProductFormPage /> },
           { path: "lives/:liveId/products/:productId/images", element: <ProductFormPage /> },
           { path: "lives/:liveId/products/:productId/edit", element: <ProductFormPage /> },
+          { path: "settings/payments", element: <MobileMoneySettingsPage /> },
           {
             path: "lives/:liveId/orders",
             element: <OrdersPage />,

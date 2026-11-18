@@ -111,6 +111,7 @@ export async function createOrder(
         where: { id: liveId },
         select: {
           id: true,
+          creatorId: true,
           status: true,
         },
       });
@@ -123,6 +124,16 @@ export async function createOrder(
       if (live.status !== "ACTIVE") {
         throw new AppError(409, "LIVE_NOT_ACTIVE", "This Live is not accepting orders");
       }
+
+      const mobileMoneySettings = await tx.creatorMobileMoneySettings.findUnique({
+        where: { creatorId: live.creatorId },
+        select: {
+          provider: true,
+          mobileMoneyNumber: true,
+          accountName: true,
+          enabled: true,
+        },
+      });
 
       const products = await tx.product.findMany({
         where: { id: { in: [...requestedQuantities.keys()] }, liveId: live.id },
@@ -198,6 +209,13 @@ export async function createOrder(
           customerPhone: input.customerPhone,
           deliveryLocation: input.deliveryLocation,
           totalAmount,
+          ...(mobileMoneySettings?.enabled
+            ? {
+                mobileMoneyProvider: mobileMoneySettings.provider,
+                mobileMoneyNumber: mobileMoneySettings.mobileMoneyNumber,
+                mobileMoneyAccountName: mobileMoneySettings.accountName,
+              }
+            : {}),
           items: {
             create: items,
           },

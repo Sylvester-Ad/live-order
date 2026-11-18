@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mobileMoneyProviderSchema } from "../creators/mobile-money.schemas.js";
 
 export const orderIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
 
@@ -30,6 +31,9 @@ export const orderResponseSchema = z.object({
   deliveryLocation: z.string(),
   totalAmount: z.number().int(),
   paymentStatus: z.enum(["PENDING", "PAID"]),
+  mobileMoneyProvider: mobileMoneyProviderSchema.nullable(),
+  mobileMoneyNumber: z.string().nullable(),
+  mobileMoneyAccountName: z.string().nullable(),
   createdAt: z.coerce.date(),
 
   items: z.array(

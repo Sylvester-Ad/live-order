@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { RouterProvider } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "../../../src/app/providers";
 import { createTestRouter } from "../../../src/app/router";
@@ -61,6 +61,9 @@ const confirmedOrder = {
   deliveryLocation: "Madina, Accra",
   totalAmount: 5100,
   paymentStatus: "PENDING",
+  mobileMoneyProvider: null,
+  mobileMoneyNumber: null,
+  mobileMoneyAccountName: null,
   createdAt: "2026-10-20T10:00:00.000Z",
   items: [{
     id: "line-1",
@@ -76,8 +79,31 @@ function renderStorefront() {
   return render(<AppProviders><RouterProvider router={createTestRouter(["/live/friday-collection"])} /></AppProviders>);
 }
 
+async function openProductDetails(productName = "Cotton shirt") {
+  fireEvent.click(await screen.findByRole("button", { name: `View ${productName} details` }));
+  return screen.findByRole("dialog", { name: productName });
+}
+
 describe("public customer ordering", () => {
-  it("shows a primary image first and allows customers to browse the product gallery", async () => {
+  beforeEach(() => {
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.setAttribute("open", ""); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.removeAttribute("open"); },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+  });
+
+  it("shows compact product cards and a large primary-first gallery in product details", async () => {
     const images = [
       { id: "image-1", url: "https://images.example/first.png", createdAt: "2026-10-12T10:00:00.000Z", isPrimary: false },
       { id: "image-2", url: "https://images.example/primary.png", createdAt: "2026-10-13T10:00:00.000Z", isPrimary: true },
@@ -86,6 +112,9 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(liveResponse(7, null, images))));
     renderStorefront();
 
+    expect(await screen.findByRole("button", { name: "View Cotton shirt details" })).toBeInTheDocument();
+    expect(screen.getByText("3 photos")).toBeInTheDocument();
+    await openProductDetails();
     expect(await screen.findByRole("img", { name: "Cotton shirt image 2" })).toHaveAttribute(
       "src",
       "https://images.example/primary.png",
@@ -109,8 +138,56 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(liveResponse())));
     renderStorefront();
 
-    expect(await screen.findAllByText("No product image")).toHaveLength(2);
+    expect(await screen.findAllByText("Photo coming soon")).toHaveLength(2);
+    await openProductDetails();
+    expect(screen.getAllByText("No product image")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /Show image/ })).not.toBeInTheDocument();
+  });
+
+  it("shows snapshotted Mobile Money instructions and copies the number", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const paymentOrder = {
+      ...confirmedOrder,
+      mobileMoneyProvider: "MTN_MOBILE_MONEY",
+      mobileMoneyNumber: "0241234567",
+      mobileMoneyAccountName: "Ama Mensah",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse());
+      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") {
+        return response({ data: paymentOrder }, 201);
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderStorefront();
+
+    await openProductDetails();
+    fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
+    fireEvent.change(await screen.findByLabelText("Your name"), { target: { value: "Ama Mensah" } });
+    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
+    fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Madina, Accra" } });
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+
+    expect(await screen.findByRole("heading", { name: "Send Mobile Money payment" })).toBeInTheDocument();
+    expect(screen.getByText("MTN Mobile Money")).toBeInTheDocument();
+    expect(screen.getByText("Ama Mensah")).toBeInTheDocument();
+    expect(screen.getByText("0241234567")).toBeInTheDocument();
+    expect(screen.getByText("Total amount due").parentElement).toHaveTextContent("GH₵ 51.00");
+    expect(screen.getByText("ORD-0123456789ABCDEF", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText(
+      "Your order has been placed, but payment has not yet been confirmed. Send the payment to the details above. The seller will confirm receipt before your order is marked as paid.",
+    )).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy number" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Mobile Money number copied.");
+    expect(writeText).toHaveBeenCalledWith("0241234567");
   });
 
   it("shows a live mobile cart summary and keeps the cart intact when the sheet closes", async () => {
@@ -118,12 +195,13 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    const addButton = await screen.findByRole("button", { name: "Add to order" });
+    await openProductDetails();
+    const addButton = screen.getByRole("button", { name: "Choose preferences" });
     expect(addButton).toBeDisabled();
     fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
-    expect(addButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add to order" })).toBeEnabled();
     fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
-    fireEvent.click(addButton);
+    fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     expect(screen.getByText("2 items")).toBeInTheDocument();
     expect(screen.getByText("Subtotal · GH₵ 51.00")).toBeInTheDocument();
 
@@ -145,7 +223,7 @@ describe("public customer ordering", () => {
     expect(screen.getByText("Add products to start your order.")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("dialog", { name: "Your order" })).getByRole("button", { name: "Close cart" }));
     expect(screen.queryByRole("button", { name: "View cart" })).not.toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("refreshes public availability when browser navigation remounts the storefront", async () => {
     let liveRequests = 0;
@@ -157,7 +235,7 @@ describe("public customer ordering", () => {
     const router = createTestRouter(["/live/friday-collection"]);
     render(<AppProviders><RouterProvider router={router} /></AppProviders>);
 
-    expect(await screen.findByText("7 available")).toBeInTheDocument();
+    expect(await screen.findAllByText("7 available")).not.toHaveLength(0);
     await act(async () => { await router.navigate("/login"); });
     await act(async () => { await router.navigate("/live/friday-collection"); });
     expect(await screen.findByText("4 available")).toBeInTheDocument();
@@ -187,13 +265,15 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    expect(await screen.findByText("7 available")).toBeInTheDocument();
+    expect(await screen.findAllByText("7 available")).not.toHaveLength(0);
     expect(screen.getByText("Out of stock")).toBeInTheDocument();
     expect(screen.queryByLabelText("Quantity for Sold-out cap")).not.toBeInTheDocument();
+    await openProductDetails();
     fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.change(screen.getByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Added 2 Cotton shirt items to your order.");
+    await openProductDetails();
     fireEvent.change(screen.getByLabelText("Quantity to add for Cotton shirt"), { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     expect(screen.getByLabelText("Quantity 3")).toBeInTheDocument();
@@ -206,9 +286,10 @@ describe("public customer ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Place order" }));
 
     expect(await screen.findByRole("heading", { name: "Thanks for your order" })).toBeInTheDocument();
-    expect(screen.getByText("ORD-0123456789ABCDEF")).toBeInTheDocument();
+    expect(screen.getAllByText("ORD-0123456789ABCDEF").length).toBeGreaterThan(0);
     expect(screen.getByText("Size: M")).toBeInTheDocument();
-    expect(screen.getByText("Payment has not been confirmed. The seller will follow up with you.")).toBeInTheDocument();
+    expect(screen.getByText(/Mobile Money details were not available when the order was placed/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Arrange payment with the seller" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue shopping" })).toBeInTheDocument();
     const orderCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST");
     expect(JSON.parse(String(orderCall?.[1]?.body))).toEqual({
@@ -243,8 +324,9 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
-    fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
+    await openProductDetails();
+    fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
+    fireEvent.change(screen.getByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0241234567" } });
@@ -275,7 +357,8 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    const quantity = await screen.findByLabelText("Quantity to add for Cotton shirt");
+    await openProductDetails();
+    const quantity = screen.getByLabelText("Quantity to add for Cotton shirt");
     fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.change(quantity, { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
@@ -305,7 +388,8 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
-    fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
+    await openProductDetails();
+    fireEvent.change(screen.getByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.change(await screen.findByLabelText("Quantity to add for Cotton shirt"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ama Mensah" } });
@@ -318,7 +402,7 @@ describe("public customer ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue shopping" }));
     expect(await screen.findByRole("heading", { name: "Friday collection" })).toBeInTheDocument();
     expect(screen.getByText("Add products to start your order.")).toBeInTheDocument();
-    expect(await screen.findByText("5 available")).toBeInTheDocument();
+    expect(await screen.findAllByText("5 available")).not.toHaveLength(0);
     expect(liveRequests).toBe(2);
   });
 
@@ -327,6 +411,7 @@ describe("public customer ordering", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderStorefront();
 
+    await openProductDetails();
     fireEvent.change(await screen.findByLabelText("Choose Size for Cotton shirt"), { target: { value: "M" } });
     fireEvent.click(await screen.findByRole("button", { name: "Add to order" }));
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "   " } });

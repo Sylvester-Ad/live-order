@@ -18,6 +18,12 @@ enum PaymentStatus {
   PAID
 }
 
+enum MobileMoneyProvider {
+  MTN_MOBILE_MONEY
+  TELECEL_CASH
+  AT_MONEY
+}
+
 enum ImageStorageProvider {
   CLOUDINARY
 }
@@ -43,6 +49,7 @@ model Creator {
 
   lives                   Live[]
   productCreationRequests ProductCreationRequest[]
+  mobileMoneySettings     CreatorMobileMoneySettings?
 }
 
 model CreatorSession {
@@ -150,19 +157,35 @@ model ProductImageUploadRequest {
   @@index([productId, status])
 }
 
+model CreatorMobileMoneySettings {
+  id                String              @id @default(uuid())
+  creatorId         String              @unique
+  provider          MobileMoneyProvider
+  mobileMoneyNumber String
+  accountName       String
+  enabled           Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+}
+
 model Order {
-  id                 String        @id @default(uuid())
-  liveId             String
-  reference          String?       @unique
-  idempotencyKey     String?       @unique
-  requestFingerprint String?
-  customerName       String
-  customerPhone      String
-  deliveryLocation   String
-  totalAmount        Int
-  paymentStatus      PaymentStatus @default(PENDING)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id                     String               @id @default(uuid())
+  liveId                 String
+  reference              String?              @unique
+  idempotencyKey         String?              @unique
+  requestFingerprint     String?
+  customerName           String
+  customerPhone          String
+  deliveryLocation       String
+  totalAmount            Int
+  paymentStatus          PaymentStatus        @default(PENDING)
+  mobileMoneyProvider    MobileMoneyProvider?
+  mobileMoneyNumber      String?
+  mobileMoneyAccountName String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
   live  Live        @relation(fields: [liveId], references: [id], onDelete: Cascade)
   items OrderItem[]
@@ -172,7 +195,7 @@ model Order {
 }
 
 model OrderItem {
-  id              String @id @default(uuid())
+  id              String  @id @default(uuid())
   orderId         String
   productId       String
   productName     String

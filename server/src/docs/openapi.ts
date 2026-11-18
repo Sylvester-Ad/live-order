@@ -239,6 +239,39 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/creator/mobile-money",
+  tags: ["Creator settings"],
+  summary: "Get Mobile Money settings",
+  description: "Returns the authenticated creator's default Mobile Money account, or null when none has been saved. This endpoint does not expose another creator's settings.",
+  security: [{ CreatorSession: [] }],
+  responses: {
+    200: jsonResponse("Creator Mobile Money settings returned.", schemaRef("MobileMoneySettingsSuccessResponse")),
+    401: errorResponse("Authentication is required or the session has expired."),
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/v1/creator/mobile-money",
+  tags: ["Creator settings"],
+  summary: "Save Mobile Money settings",
+  description: "Creates or updates the authenticated creator's default Mobile Money account, shared across all their Lives. Number input is normalized to Ghana's local ten-digit format. Disabling Mobile Money preserves the saved account but excludes it from new order payment instructions.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    body: {
+      required: true,
+      content: jsonContent(schemaRef("UpdateMobileMoneySettingsRequest")),
+    },
+  },
+  responses: {
+    200: jsonResponse("Creator Mobile Money settings saved.", schemaRef("MobileMoneySettingsUpdateSuccessResponse")),
+    400: errorResponse("Invalid provider, Ghanaian mobile number, account name, or enabled status."),
+    401: errorResponse("Authentication is required or the session has expired."),
+  },
+});
+
 // POST /api/v1/creator/logout
 registry.registerPath({
   method: "post",

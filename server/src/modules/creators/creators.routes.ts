@@ -8,6 +8,14 @@ import {
 import { requireCreator } from "../../shared/middleware/require-creator.js";
 import { prisma } from "../../database/prisma.js";
 import { hashSessionToken } from "../../shared/utils/sessions.js";
+import {
+  mobileMoneySettingsResponseSchema,
+  updateMobileMoneySettingsSchema,
+} from "./mobile-money.schemas.js";
+import {
+  getMobileMoneySettings,
+  saveMobileMoneySettings,
+} from "./mobile-money.service.js";
 
 const router = Router();
 
@@ -45,6 +53,29 @@ router.get("/me", requireCreator, (req, res) => {
   return res.json({
     data: creatorResponseSchema.parse(req.creator),
   });
+});
+
+router.get("/mobile-money", requireCreator, async (req, res, next) => {
+  try {
+    const settings = await getMobileMoneySettings(req.creator!.id);
+    return res.json({
+      data: settings ? mobileMoneySettingsResponseSchema.parse(settings) : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/mobile-money", requireCreator, async (req, res, next) => {
+  try {
+    const input = updateMobileMoneySettingsSchema.parse(req.body);
+    const settings = await saveMobileMoneySettings(req.creator!.id, input);
+    return res.json({
+      data: mobileMoneySettingsResponseSchema.parse(settings),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post("/logout", async (req, res, next) => {

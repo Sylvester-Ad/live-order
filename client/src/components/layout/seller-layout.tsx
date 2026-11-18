@@ -10,6 +10,7 @@ import { Brand } from "./brand";
 const primaryNavigation = [
   { label: "Dashboard", to: "/", end: true },
   { label: "Lives", to: "/lives", end: false },
+  { label: "Payments", to: "/settings/payments", end: false },
 ];
 
 export function SellerLayout() {
@@ -104,7 +105,7 @@ export function SellerLayout() {
               </Button>
             </div>
           </div>
-          <nav aria-label="Seller navigation" className={`fixed inset-x-0 bottom-0 z-30 grid ${navigation.length === 4 ? "grid-cols-4" : "grid-cols-2"} border-t border-border bg-surface px-2 pt-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_12px_rgb(0_0_0_/_0.04)] lg:hidden`}>
+          <nav aria-label="Seller navigation" className="fixed inset-x-0 bottom-0 z-30 grid border-t border-border bg-surface px-1 pt-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_12px_rgb(0_0_0_/_0.04)] lg:hidden" style={{ gridTemplateColumns: `repeat(${navigation.length}, minmax(0, 1fr))` }}>
             {navigation.map((item) => (
               <NavLink
                 className={({ isActive }) =>

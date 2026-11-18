@@ -4,6 +4,11 @@ import {
   creatorAccessSchema,
   creatorResponseSchema,
 } from "../modules/creators/creators.schemas.js";
+import {
+  mobileMoneySettingsResponseSchema,
+  mobileMoneySettingsSuccessSchema,
+  updateMobileMoneySettingsSchema,
+} from "../modules/creators/mobile-money.schemas.js";
 
 import {
   createLiveSchema,
@@ -89,6 +94,10 @@ export const creatorSuccessSchema = z.object({
   data: creatorResponseSchema,
 });
 
+export const mobileMoneySettingsUpdateSuccessSchema = z.object({
+  data: mobileMoneySettingsResponseSchema,
+});
+
 export const liveSuccessSchema = z.object({
   data: liveResponseSchema,
 });
@@ -158,6 +167,10 @@ registry.register("HealthResponse", healthResponseSchema);
 registry.register("CreatorAccessRequest", creatorAccessSchema);
 registry.register("CreatorResponse", creatorResponseSchema);
 registry.register("CreatorSuccessResponse", creatorSuccessSchema);
+registry.register("UpdateMobileMoneySettingsRequest", updateMobileMoneySettingsSchema);
+registry.register("MobileMoneySettingsResponse", mobileMoneySettingsResponseSchema);
+registry.register("MobileMoneySettingsSuccessResponse", mobileMoneySettingsSuccessSchema);
+registry.register("MobileMoneySettingsUpdateSuccessResponse", mobileMoneySettingsUpdateSuccessSchema);
 
 registry.register("CreateLiveRequest", createLiveSchema);
 registry.register("UpdateLiveRequest", updateLiveSchema);

@@ -9,6 +9,7 @@ import { buttonClassName } from "../../../components/ui/button-styles";
 import { ApiError, TransportError } from "../../../lib/api-client";
 import { formatPesewas } from "../../../lib/format-money";
 import { readProductOptionGroups } from "../../../lib/product-options";
+import { PublicProductCard } from "../components/public-product-card";
 import type { CreateCustomerOrderInput, CreatedCustomerOrder } from "../../orders/api/orders-api";
 import { clearPublicOrderIdempotencyKey, getPublicOrderIdempotencyKey } from "../../orders/lib/public-order-idempotency";
 import { useCreateCustomerOrder } from "../../orders/hooks/use-create-customer-order";
@@ -134,6 +135,15 @@ export function PublicLivePage() {
     if (!uncertainSubmission) placeOrder.reset();
   }
 
+  function updateProductOption(productId: string, groupName: string, value: string) {
+    setSelections((current) => {
+      const nextSelection = { ...current[productId] };
+      if (value) nextSelection[groupName] = value;
+      else delete nextSelection[groupName];
+      return { ...current, [productId]: nextSelection };
+    });
+  }
+
   function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
@@ -255,85 +265,20 @@ export function PublicLivePage() {
         <Card><CardContent><p className="font-semibold text-ink">Products will appear here when the seller adds them.</p></CardContent></Card>
       ) : (
         <form className="grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_21rem] lg:pb-0" onSubmit={submitOrder}>
-          <section aria-label="Products" className="grid content-start gap-3">
+          <section aria-label="Products" className="grid content-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {live.products.map((product) => {
-              const optionGroups = readProductOptionGroups(product.options);
-              const selectedOptions = selections[product.id] ?? {};
-              const missingPreference = optionGroups.supported && optionGroups.groups.some(
-                (group) => !group.choices.includes(selectedOptions[group.name] ?? ""),
-              );
-              const alreadyInCart = productQuantityInCart(cart, product.id);
-              const remainingStock = Math.max(0, product.stockQuantity - alreadyInCart);
-              const selectedQuantity = Math.min(addQuantities[product.id] ?? 1, remainingStock, 100);
-              const productImages = product.images ?? (
-                product.image ? [{ ...product.image, isPrimary: true }] : []
-              );
               return (
-                <Card key={product.id}>
-                  <CardContent className="flex items-start gap-3 sm:gap-4">
-                    <ProductImageGallery compact images={productImages} name={product.name} />
-                    <div className="grid min-w-0 flex-1 gap-2">
-                      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
-                        <h2 className="min-w-0 break-words font-bold text-ink">{product.name}</h2>
-                        <p className="shrink-0 font-bold tabular-nums text-brand-800">{formatPesewas(product.price)}</p>
-                      </div>
-                    {!product.available || product.stockQuantity === 0 ? (
-                      <p className="text-sm font-semibold text-danger-700">Out of stock</p>
-                    ) : (
-                      <>
-                        <p className="text-sm text-ink-muted">{product.stockQuantity} available</p>
-                        {optionGroups.supported && optionGroups.groups.map((group) => (
-                          <label className="grid gap-1.5 text-sm font-medium text-ink" key={`${product.id}:${group.id}`}>
-                            {group.name} <span aria-hidden="true" className="text-danger-700">*</span>
-                            <select
-                              aria-label={`Choose ${group.name} for ${product.name}`}
-                              aria-required="true"
-                              className="min-h-11 rounded-control border border-border bg-white px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
-                              disabled={uncertainSubmission}
-                              onChange={(event) => setSelections((current) => {
-                                const nextSelection = { ...current[product.id] };
-                                if (event.target.value) nextSelection[group.name] = event.target.value;
-                                else delete nextSelection[group.name];
-                                return { ...current, [product.id]: nextSelection };
-                              })}
-                              value={selections[product.id]?.[group.name] ?? ""}
-                            >
-                              <option value="">Choose an option</option>
-                              {group.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-                            </select>
-                          </label>
-                        ))}
-                        {missingPreference && <p className="text-sm text-ink-muted">Choose every preference before adding this product.</p>}
-                        {!optionGroups.supported && product.options != null && (
-                          <p className="text-sm text-ink-muted">This product has older option details; contact the seller to confirm your preference.</p>
-                        )}
-                        <div className="mt-1 flex flex-wrap items-end gap-3 border-t border-border pt-3">
-                          <label className="grid w-24 gap-1.5 text-sm font-medium text-ink">
-                            Quantity
-                            <input
-                              aria-label={`Quantity to add for ${product.name}`}
-                              className="min-h-11 rounded-control border border-border px-3 outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
-                              disabled={uncertainSubmission || remainingStock === 0}
-                              max={Math.min(remainingStock, 100)}
-                              min={1}
-                              onChange={(event) => {
-                                const value = event.target.value === "" ? 1 : Number(event.target.value);
-                                if (Number.isInteger(value)) setAddQuantities((current) => ({ ...current, [product.id]: Math.min(Math.max(1, value), remainingStock, 100) }));
-                              }}
-                              step={1}
-                              type="number"
-                              value={remainingStock === 0 ? 0 : selectedQuantity}
-                            />
-                          </label>
-                          <Button className="flex-1 sm:flex-none" disabled={uncertainSubmission || remainingStock === 0 || selectedQuantity < 1 || missingPreference} onClick={() => addToOrder(product)} type="button">
-                            {remainingStock === 0 ? "Stock limit reached" : "Add to order"}
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                    </div>
-                  </CardContent>
-                </Card>
+                <PublicProductCard
+                  key={product.id}
+                  disabled={uncertainSubmission}
+                  onAdd={() => addToOrder(product)}
+                  onOptionChange={(groupName, value) => updateProductOption(product.id, groupName, value)}
+                  onQuantityChange={(quantity) => setAddQuantities((current) => ({ ...current, [product.id]: quantity }))}
+                  product={product}
+                  quantityInOrder={productQuantityInCart(cart, product.id)}
+                  quantity={addQuantities[product.id] ?? 1}
+                  selectedOptions={selections[product.id] ?? {}}
+                />
               );
             })}
           </section>
@@ -415,18 +360,88 @@ export function PublicLivePage() {
 }
 
 function OrderConfirmation({ live, order, onContinueShopping, refreshingAvailability }: { live: PublicLive; order: CreatedCustomerOrder; onContinueShopping(): void; refreshingAvailability: boolean }) {
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const paymentProvider = order.mobileMoneyProvider
+    ? {
+        MTN_MOBILE_MONEY: "MTN Mobile Money",
+        TELECEL_CASH: "Telecel Cash",
+        AT_MONEY: "AT Money",
+      }[order.mobileMoneyProvider]
+    : null;
+  const hasPaymentInstructions = Boolean(
+    paymentProvider && order.mobileMoneyNumber && order.mobileMoneyAccountName,
+  );
+
+  async function copyNumber() {
+    if (!order.mobileMoneyNumber) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard is unavailable");
+      await navigator.clipboard.writeText(order.mobileMoneyNumber);
+      setCopyFeedback("Mobile Money number copied.");
+    } catch {
+      setCopyFeedback("We couldn't copy the number. Select and copy it manually.");
+    }
+  }
+
   return (
     <>
       <PageHeader description={`Your order has been submitted to ${live.name}'s seller.`} eyebrow="Order submitted" title="Thanks for your order" />
       <Card>
         <CardContent className="grid gap-5">
-          <div className="rounded-control bg-success-50 p-4">
-            <p className="font-bold text-success-800">Order received</p>
-            <p className="mt-1 text-sm text-success-800">Payment has not been confirmed. The seller will follow up with you.</p>
-          </div>
           <div>
             <p className="text-sm font-semibold text-ink-muted">Order reference</p>
             <p className="mt-1 font-mono text-xl font-bold tracking-wide text-ink">{order.reference}</p>
+          </div>
+          {hasPaymentInstructions ? (
+            <section aria-labelledby="payment-instructions-title" className="grid gap-4 rounded-panel border border-brand-200 bg-brand-50 p-4 sm:p-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-brand-800">Payment instructions</p>
+                <h2 className="mt-1 text-lg font-bold text-ink" id="payment-instructions-title">Send Mobile Money payment</h2>
+              </div>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Provider</dt>
+                  <dd className="mt-1 font-semibold text-ink">{paymentProvider}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Account name</dt>
+                  <dd className="mt-1 font-semibold text-ink">{order.mobileMoneyAccountName}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Mobile Money number</dt>
+                  <dd className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-lg font-bold tracking-wide text-ink">{order.mobileMoneyNumber}</span>
+                    <Button onClick={() => void copyNumber()} size="sm" type="button" variant="secondary">Copy number</Button>
+                  </dd>
+                  {copyFeedback && <p className="mt-1 text-sm text-ink-muted" role="status">{copyFeedback}</p>}
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Total amount due</dt>
+                  <dd className="mt-1 text-lg font-bold tabular-nums text-ink">{formatPesewas(order.totalAmount)}</dd>
+                </div>
+              </dl>
+              <div className="border-t border-brand-200 pt-3">
+                <p className="text-sm leading-6 text-ink">
+                  Use order reference <strong className="font-mono">{order.reference}</strong> when you send payment or communicate with the seller.
+                </p>
+              </div>
+            </section>
+          ) : (
+            <div className="rounded-control border border-border bg-canvas p-4">
+              <h2 className="font-bold text-ink">Arrange payment with the seller</h2>
+              <p className="mt-1 text-sm leading-6 text-ink-muted">
+                No Mobile Money instructions were saved for this order. Contact the seller and share order reference{" "}
+                <strong className="font-mono text-ink">{order.reference}</strong> to arrange payment.
+              </p>
+            </div>
+          )}
+          <div className="rounded-control bg-success-50 p-4">
+            <p className="font-bold text-success-800">Order received</p>
+            <p className="mt-1 text-sm leading-6 text-success-800">
+              {hasPaymentInstructions
+                ? "Your order has been placed, but payment has not yet been confirmed. Send the payment to the details above. The seller will confirm receipt before your order is marked as paid."
+                : "Your order has been placed, but payment has not yet been confirmed. Mobile Money details were not available when the order was placed. Contact the seller to arrange payment. The seller will confirm receipt before your order is marked as paid."}
+            </p>
           </div>
           <div>
             <h2 className="font-bold text-ink">Items ordered</h2>
@@ -459,56 +474,4 @@ function SelectedOptions({ options }: { options: unknown }) {
   const entries = Object.entries(options).filter((entry): entry is [string, string] => typeof entry[1] === "string");
   if (entries.length === 0) return null;
   return <span className="block text-xs text-ink-muted">{entries.map(([group, choice]) => `${group}: ${choice}`).join(" · ")}</span>;
-}
-
-function ProductImageGallery({
-  images,
-  name,
-  compact = false,
-}: {
-  images: PublicLive["products"][number]["images"];
-  name: string;
-  compact?: boolean;
-}) {
-  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [failedImageIds, setFailedImageIds] = useState<string[]>([]);
-  const primaryImage = images.find((image) => image.isPrimary) ?? images[0];
-  const selectedImage = images.find((image) => image.id === selectedImageId) ?? primaryImage;
-  const selectedImageIndex = selectedImage ? images.findIndex((image) => image.id === selectedImage.id) : -1;
-
-  return (
-    <div className={`grid shrink-0 content-start gap-1.5 ${compact ? "w-20 sm:w-24" : "gap-2"}`}>
-      {selectedImage && !failedImageIds.includes(selectedImage.id) ? (
-        <img
-          alt={`${name} image ${selectedImageIndex + 1}`}
-          className={`${compact ? "aspect-square" : "aspect-4/3"} w-full rounded-panel bg-canvas object-contain`}
-          loading="lazy"
-          onError={() => setFailedImageIds((current) => [...current, selectedImage.id])}
-          src={selectedImage.url}
-        />
-      ) : (
-        <div className={`grid ${compact ? "aspect-square text-xs" : "aspect-4/3 text-sm"} place-items-center rounded-panel bg-canvas text-ink-muted`}>
-          {selectedImage ? "Image unavailable" : "No product image"}
-        </div>
-      )}
-      {images.length > 1 && (
-        <div aria-label={`${name} product images`} className="flex gap-2 overflow-x-auto pb-1" role="group">
-          {images.map((image, index) => (
-            <button
-              aria-label={`Show image ${index + 1} of ${images.length} for ${name}`}
-              aria-pressed={selectedImage?.id === image.id}
-              className={`shrink-0 rounded-control outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 ${
-                selectedImage?.id === image.id ? "ring-2 ring-brand-700" : "ring-1 ring-border"
-              }`}
-              key={image.id}
-              onClick={() => setSelectedImageId(image.id)}
-              type="button"
-            >
-              <img alt="" className={`${compact ? "size-8 sm:size-9" : "size-14"} rounded-control bg-canvas object-cover`} loading="lazy" src={image.url} />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }

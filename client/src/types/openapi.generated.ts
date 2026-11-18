@@ -709,6 +709,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/creator/mobile-money": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Mobile Money settings
+         * @description Returns the authenticated creator's default Mobile Money account, or null when none has been saved. This endpoint does not expose another creator's settings.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Creator Mobile Money settings returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MobileMoneySettingsSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required or the session has expired. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /**
+         * Save Mobile Money settings
+         * @description Creates or updates the authenticated creator's default Mobile Money account, shared across all their Lives. Number input is normalized to Ghana's local ten-digit format. Disabling Mobile Money preserves the saved account but excludes it from new order payment instructions.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMobileMoneySettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description Creator Mobile Money settings saved. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MobileMoneySettingsUpdateSuccessResponse"];
+                    };
+                };
+                /** @description Invalid provider, Ghanaian mobile number, account name, or enabled status. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required or the session has expired. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/creator/logout": {
         parameters: {
             query?: never;
@@ -1575,6 +1668,44 @@ export interface components {
                 name: string;
             };
         };
+        UpdateMobileMoneySettingsRequest: {
+            /** @enum {string} */
+            provider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY";
+            mobileMoneyNumber: string;
+            accountName: string;
+            enabled: boolean;
+        };
+        MobileMoneySettingsResponse: {
+            /** @enum {string} */
+            provider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY";
+            mobileMoneyNumber: string;
+            accountName: string;
+            enabled: boolean;
+            /** Format: date-time */
+            updatedAt: string | null;
+        };
+        MobileMoneySettingsSuccessResponse: {
+            data: {
+                /** @enum {string} */
+                provider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY";
+                mobileMoneyNumber: string;
+                accountName: string;
+                enabled: boolean;
+                /** Format: date-time */
+                updatedAt: string | null;
+            } | null;
+        };
+        MobileMoneySettingsUpdateSuccessResponse: {
+            data: {
+                /** @enum {string} */
+                provider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY";
+                mobileMoneyNumber: string;
+                accountName: string;
+                enabled: boolean;
+                /** Format: date-time */
+                updatedAt: string | null;
+            };
+        };
         CreateLiveRequest: {
             name: string;
             /** Format: uri */
@@ -1834,6 +1965,10 @@ export interface components {
             totalAmount: number;
             /** @enum {string} */
             paymentStatus: "PENDING" | "PAID";
+            /** @enum {string|null} */
+            mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+            mobileMoneyNumber: string | null;
+            mobileMoneyAccountName: string | null;
             /** Format: date-time */
             createdAt: string | null;
             items: {
@@ -1858,6 +1993,10 @@ export interface components {
                 totalAmount: number;
                 /** @enum {string} */
                 paymentStatus: "PENDING" | "PAID";
+                /** @enum {string|null} */
+                mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+                mobileMoneyNumber: string | null;
+                mobileMoneyAccountName: string | null;
                 /** Format: date-time */
                 createdAt: string | null;
                 items: {
@@ -1883,6 +2022,10 @@ export interface components {
                 totalAmount: number;
                 /** @enum {string} */
                 paymentStatus: "PENDING" | "PAID";
+                /** @enum {string|null} */
+                mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+                mobileMoneyNumber: string | null;
+                mobileMoneyAccountName: string | null;
                 /** Format: date-time */
                 createdAt: string | null;
                 items: {
