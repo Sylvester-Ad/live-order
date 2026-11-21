@@ -718,7 +718,7 @@ export interface paths {
         };
         /**
          * Get Mobile Money settings
-         * @description Returns the authenticated creator's default Mobile Money account, or null when none has been saved. This endpoint does not expose another creator's settings.
+         * @description Returns the authenticated creator's legacy Mobile Money account, or null when none has been saved. This is a temporary compatibility endpoint; Store-managed settings are returned by the Store-scoped endpoint.
          */
         get: {
             parameters: {
@@ -751,7 +751,7 @@ export interface paths {
         };
         /**
          * Save Mobile Money settings
-         * @description Creates or updates the authenticated creator's default Mobile Money account, shared across all their Lives. Number input is normalized to Ghana's local ten-digit format. Disabling Mobile Money preserves the saved account but excludes it from new order payment instructions.
+         * @description Creates or updates the authenticated creator's legacy Mobile Money account. Store settings still marked LEGACY_INHERITED are refreshed, and unconfigured Stores receive inherited settings; Store-managed settings are never overwritten. This is a temporary compatibility endpoint. Number input is normalized to Ghana's local ten-digit format.
          */
         put: {
             parameters: {
@@ -786,6 +786,121 @@ export interface paths {
                 };
                 /** @description Authentication is required or the session has expired. */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/mobile-money": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Store Mobile Money settings
+         * @description Returns Mobile Money settings for the Store owned by the authenticated Creator, or null when none are configured. Store-specific settings are independent of other Stores owned by the Creator.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Store Mobile Money settings returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MobileMoneySettingsSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required or the session has expired. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /**
+         * Save Store Mobile Money settings
+         * @description Creates or updates settings for the Store owned by the authenticated Creator and marks them Store-managed. Disabling Mobile Money preserves the saved details but excludes them from new order payment instructions.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMobileMoneySettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description Store Mobile Money settings saved. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MobileMoneySettingsUpdateSuccessResponse"];
+                    };
+                };
+                /** @description Invalid provider, Ghanaian mobile number, account name, or enabled status. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required or the session has expired. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found. */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1638,6 +1753,1509 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stores/{storeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a Store */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Store returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Store details */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateStoreDetailsRequest"];
+                };
+            };
+            responses: {
+                /** @description Store updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store ID or request body. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a Store */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Store publication status updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Invalid Store publication transition. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unpublish a Store */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Store publication status updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Invalid Store publication transition. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a Store order */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Order returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreOrderSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Order not found in this Store. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark a Store order as paid */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description Order payment status updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreOrderSuccessResponse"];
+                    };
+                };
+                /** @description Invalid order ID or request body. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Order not found in this Store. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the creator's Stores
+         * @description Returns Stores belonging to the authenticated creator, newest first.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Stores returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoresSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create a Store
+         * @description Creates a new Store for the authenticated creator. New Stores start in DRAFT status.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateStoreRequest"];
+                };
+            };
+            responses: {
+                /** @description Store created successfully. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreSuccessResponse"];
+                    };
+                };
+                /** @description Invalid request body. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List products for a Store
+         * @description Returns products associated with a Store owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ID of the Store whose products should be returned. */
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Products returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductsSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create a product
+         * @description Creates a product without an image for a Store owned by the authenticated creator. The request must be JSON and include an Idempotency-Key UUID. Repeating the same key and payload returns the original product; reusing the key with a different payload returns a conflict. Upload images separately after creation. Prices are integer pesewas, stock is a non-negative whole number, and options map group names to selectable string choices.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description A UUID reused for retries of the same logical product creation request. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    /** @description ID of the Store receiving the product. */
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateProductRequest"];
+                };
+            };
+            responses: {
+                /** @description Product created successfully. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store ID or product data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The idempotency key was already used for a different product request. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The product created by this request has since been deleted. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product creation accepts JSON only. */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products/{productId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a product
+         * @description Deletes a product belonging to a Store owned by the authenticated creator. Products referenced by order history cannot be deleted.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Product deleted successfully. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid product ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product has order history, pending uploads, or is already being deleted. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Update a product
+         * @description Updates a product belonging to a Store owned by the authenticated creator.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateProductRequest"];
+                };
+            };
+            responses: {
+                /** @description Product updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid product ID or request body. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products/{productId}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deprecated product image upload
+         * @description This legacy unkeyed upload route is retired. Use the idempotent /images endpoint.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description This unkeyed upload route has been retired. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /**
+         * Remove the primary product image
+         * @description Compatibility endpoint that removes the current primary image, if present. Use the image-specific endpoint to remove a chosen image or retry cleanup for an image already being deleted.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Image removed successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products/{productId}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a product image
+         * @description Uploads one JPEG, PNG, or WebP image up to 5 MB to a product owned by the authenticated creator. Reuse the required Idempotency-Key UUID and the exact same file bytes to safely retry an ambiguous upload. After a browser refresh, completed uploads can be recovered through the status endpoint. A pending upload requires selecting the original file again and retrying with the same key and bytes; uploaded file contents are not retained by the application. A product can have up to three active or pending images.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description UUID identifying this logical image upload; reuse it with the original file bytes when retrying. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    storeId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        image: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Existing upload result returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductImageUploadSuccessResponse"];
+                    };
+                };
+                /** @description Image uploaded and finalized. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductImageUploadSuccessResponse"];
+                    };
+                };
+                /** @description Invalid image, UUID, or upload request. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store or product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The key was reused with different input, the product is deleting, or the image limit was reached. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description This upload result was previously deleted. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image exceeds the 5 MB limit. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image storage provider failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Image storage or upload finalization is temporarily unavailable. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/product-image-uploads/{idempotencyKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get product image upload status
+         * @description Completed uploads return their saved image result. Pending uploads can be resumed by selecting the original file again and retrying the upload with the same idempotency key and exact file bytes.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    idempotencyKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pending or completed upload status returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductImageUploadStatusSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store ID or idempotency key. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Upload not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The image created by this request has since been deleted. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products/{productId}/image-uploads/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List pending product image uploads */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pending upload attempts returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PendingProductImageUploadsSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products/{productId}/images/{imageId}/primary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Select a product's primary image
+         * @description Sets an active image belonging to the authenticated creator's product as its primary image and returns the updated product with its active image gallery.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                    imageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Primary image selected. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store, product, or image ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product or product image not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description The product is deleting or the image is not active. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/products/{productId}/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a product image
+         * @description Logically removes an active image from a product owned by the authenticated creator, releases its slot once, and attempts provider cleanup. Repeating the request for a deleting image retries provider cleanup without releasing the slot again.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                    imageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Updated product returned; provider cleanup is attempted synchronously. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store, product, or image ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product or product image not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List orders
+         * @description Returns orders associated with a Store owned by the authenticated creator.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ID of the Store whose orders should be returned. */
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Orders returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreOrdersSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Place an order
+         * @description Creates a customer order for an active Store. Each configured product option group requires one valid customer selection. The backend uses current product prices, calculates the total, and atomically decrements stock with order creation. An optional Idempotency-Key UUID makes safe retries return the original order and customer-facing reference. No creator session is required.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @description A UUID reused for retries of the same logical order request. */
+                    "Idempotency-Key"?: string;
+                };
+                path: {
+                    /** @description ID of the Store being ordered from. */
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description Order created successfully. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreOrderSuccessResponse"];
+                    };
+                };
+                /** @description Invalid order data, product, or selected product options. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store is inactive, product stock is insufficient, or the idempotency key was reused with a different request. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{storeId}/orders/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export orders as CSV
+         * @description Downloads order data as a CSV file. Monetary values are expressed in pesewas. Existing columns are followed by the customer-facing order reference.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ID of the Store whose orders should be exported. */
+                    storeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description CSV file containing order and order-item data. */
+                200: {
+                    headers: {
+                        /** @description Attachment filename for the CSV download. */
+                        "Content-Disposition"?: string;
+                        /** @description Response cache policy. */
+                        "Cache-Control"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
+                    };
+                };
+                /** @description Invalid Store ID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Store not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/stores/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a public Store
+         * @description Returns an active Store and its public product information. Product images include active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image. No provider storage identifiers are exposed, and no creator session is required.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Public slug of the Store. */
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active Store returned. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PublicStoreSuccessResponse"];
+                    };
+                };
+                /** @description Invalid Store slug. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Active Store not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1761,6 +3379,59 @@ export interface components {
                 updatedAt: string | null;
             }[];
         };
+        CreateStoreRequest: {
+            name: string;
+            /** Format: uri */
+            tiktokLiveUrl?: string | null;
+        };
+        UpdateStoreDetailsRequest: {
+            name?: string;
+            /** Format: uri */
+            tiktokLiveUrl?: string | null;
+        };
+        StoreResponse: {
+            id: string;
+            name: string;
+            slug: string;
+            /** @enum {string} */
+            status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+            /** Format: uri */
+            tiktokLiveUrl: string | null;
+            /** Format: date-time */
+            createdAt: string | null;
+            /** Format: date-time */
+            updatedAt: string | null;
+        };
+        StoreSuccessResponse: {
+            data: {
+                id: string;
+                name: string;
+                slug: string;
+                /** @enum {string} */
+                status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+                /** Format: uri */
+                tiktokLiveUrl: string | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+            };
+        };
+        StoresSuccessResponse: {
+            data: {
+                id: string;
+                name: string;
+                slug: string;
+                /** @enum {string} */
+                status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+                /** Format: uri */
+                tiktokLiveUrl: string | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+            }[];
+        };
         CreateProductRequest: {
             name: string;
             price: number;
@@ -1861,6 +3532,129 @@ export interface components {
                 /** Format: date-time */
                 updatedAt: string | null;
             }[];
+        };
+        StoreProductResponse: {
+            id: string;
+            name: string;
+            price: number;
+            options?: unknown;
+            stockQuantity: number;
+            images: {
+                id: string;
+                /** Format: uri */
+                url: string;
+                /** Format: date-time */
+                createdAt: string | null;
+                isPrimary: boolean;
+            }[];
+            image: {
+                id: string;
+                /** Format: uri */
+                url: string;
+                /** Format: date-time */
+                createdAt: string | null;
+            } | null;
+            /** Format: date-time */
+            createdAt: string | null;
+            /** Format: date-time */
+            updatedAt: string | null;
+            storeId: string;
+        };
+        StoreProductSuccessResponse: {
+            data: {
+                id: string;
+                name: string;
+                price: number;
+                options?: unknown;
+                stockQuantity: number;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+                storeId: string;
+            };
+        };
+        StoreProductsSuccessResponse: {
+            data: {
+                id: string;
+                name: string;
+                price: number;
+                options?: unknown;
+                stockQuantity: number;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+                storeId: string;
+            }[];
+        };
+        StoreProductImageUploadSuccessResponse: {
+            data: {
+                product: {
+                    id: string;
+                    name: string;
+                    price: number;
+                    options?: unknown;
+                    stockQuantity: number;
+                    images: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                        isPrimary: boolean;
+                    }[];
+                    image: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                    } | null;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    /** Format: date-time */
+                    updatedAt: string | null;
+                    storeId: string;
+                };
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                };
+            };
         };
         ProductImageUploadSuccessResponse: {
             data: {
@@ -2040,6 +3834,91 @@ export interface components {
                 }[];
             }[];
         };
+        StoreOrderResponse: {
+            id: string;
+            reference: string;
+            customerName: string;
+            customerPhone: string;
+            deliveryLocation: string;
+            totalAmount: number;
+            /** @enum {string} */
+            paymentStatus: "PENDING" | "PAID";
+            /** @enum {string|null} */
+            mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+            mobileMoneyNumber: string | null;
+            mobileMoneyAccountName: string | null;
+            /** Format: date-time */
+            createdAt: string | null;
+            items: {
+                id: string;
+                productId: string;
+                productName: string;
+                /** Format: uri */
+                productImageUrl: string | null;
+                unitPrice: number;
+                quantity: number;
+                selectedOptions?: unknown;
+            }[];
+            storeId: string;
+        };
+        StoreOrderSuccessResponse: {
+            data: {
+                id: string;
+                reference: string;
+                customerName: string;
+                customerPhone: string;
+                deliveryLocation: string;
+                totalAmount: number;
+                /** @enum {string} */
+                paymentStatus: "PENDING" | "PAID";
+                /** @enum {string|null} */
+                mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+                mobileMoneyNumber: string | null;
+                mobileMoneyAccountName: string | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                items: {
+                    id: string;
+                    productId: string;
+                    productName: string;
+                    /** Format: uri */
+                    productImageUrl: string | null;
+                    unitPrice: number;
+                    quantity: number;
+                    selectedOptions?: unknown;
+                }[];
+                storeId: string;
+            };
+        };
+        StoreOrdersSuccessResponse: {
+            data: {
+                id: string;
+                reference: string;
+                customerName: string;
+                customerPhone: string;
+                deliveryLocation: string;
+                totalAmount: number;
+                /** @enum {string} */
+                paymentStatus: "PENDING" | "PAID";
+                /** @enum {string|null} */
+                mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+                mobileMoneyNumber: string | null;
+                mobileMoneyAccountName: string | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                items: {
+                    id: string;
+                    productId: string;
+                    productName: string;
+                    /** Format: uri */
+                    productImageUrl: string | null;
+                    unitPrice: number;
+                    quantity: number;
+                    selectedOptions?: unknown;
+                }[];
+                storeId: string;
+            }[];
+        };
         UpdateOrderRequest: {
             /** @enum {string} */
             paymentStatus: "PAID";
@@ -2083,6 +3962,72 @@ export interface components {
                 slug: string;
                 /** @enum {string} */
                 status: "ACTIVE";
+                /** Format: uri */
+                tiktokLiveUrl: string | null;
+                products: {
+                    id: string;
+                    name: string;
+                    price: number;
+                    options?: unknown;
+                    stockQuantity: number;
+                    available: boolean;
+                    images: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                        isPrimary: boolean;
+                    }[];
+                    image: {
+                        id: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        createdAt: string | null;
+                    } | null;
+                }[];
+            };
+        };
+        PublicStoreResponse: {
+            id: string;
+            name: string;
+            slug: string;
+            /** @enum {string} */
+            status: "PUBLISHED";
+            /** Format: uri */
+            tiktokLiveUrl: string | null;
+            products: {
+                id: string;
+                name: string;
+                price: number;
+                options?: unknown;
+                stockQuantity: number;
+                available: boolean;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
+            }[];
+        };
+        PublicStoreSuccessResponse: {
+            data: {
+                id: string;
+                name: string;
+                slug: string;
+                /** @enum {string} */
+                status: "PUBLISHED";
                 /** Format: uri */
                 tiktokLiveUrl: string | null;
                 products: {

@@ -11,7 +11,7 @@ import { ApiError, TransportError } from "../../../lib/api-client";
 import { parseCedisToPesewas, pesewasToCedisInput } from "../../../lib/product-price";
 import { parseProductOptions, readProductOptionGroups, type ProductOptionGroup } from "../../../lib/product-options";
 import { useCurrentCreator } from "../../auth/hooks/use-auth";
-import { useLives } from "../../lives/hooks/use-lives";
+import { useStores } from "../../lives/hooks/use-lives";
 import { productsApi, type Product, type ProductImage } from "../api/products-api";
 import { ProductOptionsEditor } from "../components/product-options-editor";
 import { ProductImageGallery } from "../components/product-image-gallery";
@@ -47,37 +47,37 @@ import {
 } from "../hooks/use-products";
 
 export function ProductFormPage() {
-  const { liveId = "", productId } = useParams();
-  const isImageSetupStep = Boolean(useMatch("/lives/:liveId/products/:productId/images"));
+  const { storeId = "", productId } = useParams();
+  const isImageSetupStep = Boolean(useMatch("/stores/:storeId/products/:productId/images"));
   const creator = useCurrentCreator();
-  const lives = useLives();
-  const products = useProducts(liveId, { enabled: Boolean(productId) });
+  const lives = useStores();
+  const products = useProducts(storeId, { enabled: Boolean(productId) });
 
   if (creator.isPending) return <LoadingState label="Restoring your seller session…" />;
   if (creator.isError || !creator.data) return <RequestFailure label="We couldn't verify your seller session." onRetry={() => void creator.refetch()} />;
   if (lives.isPending) {
-    return <LoadingState label={productId ? "Loading product…" : "Loading this Live…"} />;
+    return <LoadingState label={productId ? "Loading product…" : "Loading this Store…"} />;
   }
-  if (lives.isError && !lives.data) return <RequestFailure label="We couldn't load this Live." onRetry={() => void lives.refetch()} />;
-  if (!lives.data) return <LoadingState label={productId ? "Loading product…" : "Loading this Live…"} />;
+  if (lives.isError && !lives.data) return <RequestFailure label="We couldn't load this Store." onRetry={() => void lives.refetch()} />;
+  if (!lives.data) return <LoadingState label={productId ? "Loading product…" : "Loading this Store…"} />;
   if (productId && products.isPending) return <LoadingState label="Loading product…" />;
-  if (productId && products.isError && !products.data) return <RequestFailure label="We couldn't load this Live's products." onRetry={() => void products.refetch()} />;
+  if (productId && products.isError && !products.data) return <RequestFailure label="We couldn't load this Store's products." onRetry={() => void products.refetch()} />;
   if (productId && !products.data) return <LoadingState label="Loading product…" />;
 
-  const live = lives.data.find((item) => item.id === liveId);
+  const live = lives.data.find((item) => item.id === storeId);
   if (!live) {
-    return <EmptyState action={<Link className="font-semibold text-brand-700 underline" to="/lives">All Lives</Link>} description="This Live may have been removed or may not belong to your account." title="Live not found" />;
+    return <EmptyState action={<Link className="font-semibold text-brand-700 underline" to="/stores">All Stores</Link>} description="This Store may have been removed or may not belong to your account." title="Store not found" />;
   }
 
-  const product = productId ? products.data?.find((item) => item.id === productId && item.liveId === liveId) : undefined;
+  const product = productId ? products.data?.find((item) => item.id === productId && item.storeId === storeId) : undefined;
   if (productId && !product) {
-    return <EmptyState action={<Link className="font-semibold text-brand-700 underline" to={`/lives/${liveId}/products`}>Back to products</Link>} description="The product may have been removed or may not belong to this Live." title="Product not found" />;
+    return <EmptyState action={<Link className="font-semibold text-brand-700 underline" to={`/stores/${storeId}/products`}>Back to products</Link>} description="The product may have been removed or may not belong to this Store." title="Product not found" />;
   }
 
   return <ProductEditor
-    key={`${liveId}:${product?.id ?? "new"}`}
+    key={`${storeId}:${product?.id ?? "new"}`}
     creatorId={creator.data.id}
-    liveId={liveId}
+    storeId={storeId}
     liveName={live.name}
     product={product}
     imageSetupStep={isImageSetupStep}
@@ -132,13 +132,13 @@ function imageRemovalErrorMessage(error: unknown) {
   return "We couldn't remove this image. It remains in the gallery; please try again.";
 }
 
-function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, refreshError }: { creatorId: string; liveId: string; liveName: string; product?: Product; imageSetupStep: boolean; refreshError: boolean }) {
+function ProductEditor({ creatorId, storeId, liveName, product, imageSetupStep, refreshError }: { creatorId: string; storeId: string; liveName: string; product?: Product; imageSetupStep: boolean; refreshError: boolean }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const uploadImage = useUploadProductImage();
-  const pendingImageUploads = usePendingProductImageUploads(liveId, product?.id ?? "", Boolean(product));
+  const pendingImageUploads = usePendingProductImageUploads(storeId, product?.id ?? "", Boolean(product));
   const removeImage = useRemoveProductImage();
   const selectPrimaryImage = useSelectPrimaryProductImage();
   const existingOptions = readProductOptionGroups(product?.options);
@@ -146,7 +146,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
   const [recoveryState] = useState(() => {
     if (product) return { attempt: null, error: null };
     try {
-      return { attempt: loadPendingProductCreation(creatorId, liveId), error: null };
+      return { attempt: loadPendingProductCreation(creatorId, storeId), error: null };
     } catch (error) {
       return {
         attempt: null,
@@ -214,7 +214,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
   useEffect(() => {
     if (!product) return;
     try {
-      const attempts = listProductImageUploadAttempts(creatorId, liveId, product.id);
+      const attempts = listProductImageUploadAttempts(creatorId, storeId, product.id);
       setStoredImageAttemptKeys(attempts.map((attempt) => attempt.idempotencyKey));
       setImageRecoveryStorageError(null);
     } catch (error) {
@@ -223,7 +223,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
         ? error.message
         : "Saved upload recovery details could not be read. Pending uploads will not be retried with a new key.");
     }
-  }, [creatorId, liveId, pendingImageUploads.dataUpdatedAt, product]);
+  }, [creatorId, storeId, pendingImageUploads.dataUpdatedAt, product]);
 
   useEffect(() => {
     if (!product || !pendingImageUploads.data || imageRecoveryStorageError) return;
@@ -232,12 +232,12 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
     for (const key of completedKeys) {
       if (recoveringCompletedKeys.current.has(key)) continue;
       recoveringCompletedKeys.current.add(key);
-      void productsApi.getImageUploadStatus(liveId, key).then(async (status) => {
+      void productsApi.getImageUploadStatus(storeId, key).then(async (status) => {
         if (status.status !== "COMPLETED" || status.productId !== product.id) return;
         setImageRecoveryNotice("An upload completed before the page refreshed. The product gallery has been updated.");
-        await queryClient.invalidateQueries({ queryKey: productsQueryKey(liveId), exact: true });
+        await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
         try {
-          clearProductImageUploadAttempt(creatorId, liveId, product.id, key);
+          clearProductImageUploadAttempt(creatorId, storeId, product.id, key);
           setStoredImageAttemptKeys((current) => current.filter((storedKey) => storedKey !== key));
         } catch {
           setImageUploadRecoveryError("The upload completed, but its browser recovery record could not be cleared.");
@@ -252,7 +252,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
   }, [
     creatorId,
     imageRecoveryStorageError,
-    liveId,
+    storeId,
     pendingImageUploads.data,
     product,
     queryClient,
@@ -261,14 +261,14 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
 
   function submitCreate(attempt: PendingProductCreation) {
     createProduct.mutate(
-      { liveId, input: attempt.input, idempotencyKey: attempt.idempotencyKey },
+      { storeId, input: attempt.input, idempotencyKey: attempt.idempotencyKey },
       {
         onSuccess: (createdProduct) => {
           try {
-            clearPendingProductCreation(creatorId, liveId);
+            clearPendingProductCreation(creatorId, storeId);
             setPendingAttempt(null);
             setStorageError(null);
-            navigate(`/lives/${liveId}/products/${encodeURIComponent(createdProduct.id)}/images`);
+            navigate(`/stores/${storeId}/products/${encodeURIComponent(createdProduct.id)}/images`);
           } catch (error) {
             setConfirmedProduct(true);
             setStorageError(error instanceof PendingProductCreationStorageError
@@ -283,7 +283,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
   function discardRejectedAttempt() {
     if (!pendingAttempt) return;
     try {
-      clearPendingProductCreation(creatorId, liveId);
+      clearPendingProductCreation(creatorId, storeId);
       setPendingAttempt(null);
       setConfirmedProduct(false);
       setStorageError(null);
@@ -298,7 +298,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
   function startNewProductAfterDeletion() {
     if (!pendingAttempt) return;
     try {
-      clearPendingProductCreation(creatorId, liveId);
+      clearPendingProductCreation(creatorId, storeId);
       setPendingAttempt(null);
       setDraft({ name: "", price: "", stockQuantity: "0", groups: [] });
       setStorageError(null);
@@ -339,10 +339,10 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
         }
         try {
           const storedAttempt = await findProductImageUploadAttempt(
-            creatorId, liveId, product.id, file,
+            creatorId, storeId, product.id, file,
           );
           const idempotencyKey = storedAttempt?.idempotencyKey ??
-            await getOrCreateProductImageUploadKey(creatorId, liveId, product.id, file);
+            await getOrCreateProductImageUploadKey(creatorId, storeId, product.id, file);
           if (keys.has(idempotencyKey)) {
             setImageSelectionMessage("That file is already in the upload list. Retry it there instead of adding it again.");
             continue;
@@ -350,16 +350,16 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
           let isRecovery = pendingUploadKeys.has(idempotencyKey);
           if (storedAttempt && !isRecovery) {
             try {
-              const status = await productsApi.getImageUploadStatus(liveId, idempotencyKey);
+              const status = await productsApi.getImageUploadStatus(storeId, idempotencyKey);
               if (status.productId !== product.id) {
                 setImageSelectionMessage("This saved upload belongs to a different product and cannot be retried here.");
                 continue;
               }
               if (status.status === "COMPLETED") {
                 setImageRecoveryNotice("This image had already finished uploading. The gallery has been refreshed without uploading it again.");
-                await queryClient.invalidateQueries({ queryKey: productsQueryKey(liveId), exact: true });
+                await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
                 try {
-                  clearProductImageUploadAttempt(creatorId, liveId, product.id, idempotencyKey);
+                  clearProductImageUploadAttempt(creatorId, storeId, product.id, idempotencyKey);
                   setStoredImageAttemptKeys((current) => current.filter((key) => key !== idempotencyKey));
                 } catch {
                   setImageUploadRecoveryError("The upload completed, but its browser recovery record could not be cleared.");
@@ -411,7 +411,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
 
     try {
       await uploadImage.mutateAsync({
-        liveId,
+        storeId,
         productId: product.id,
         file: upload.file,
         idempotencyKey: upload.idempotencyKey,
@@ -420,7 +420,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
         item.id === uploadId ? { ...item, status: "succeeded" } : item,
       ));
       try {
-        clearProductImageUploadAttempt(creatorId, liveId, product.id, upload.idempotencyKey);
+        clearProductImageUploadAttempt(creatorId, storeId, product.id, upload.idempotencyKey);
       } catch (error) {
         setImageUploadRecoveryError(error instanceof PendingProductImageUploadStorageError
           ? error.message
@@ -428,15 +428,15 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
       }
     } catch (error) {
       try {
-        const status = await productsApi.getImageUploadStatus(liveId, upload.idempotencyKey);
+        const status = await productsApi.getImageUploadStatus(storeId, upload.idempotencyKey);
         if (status.productId === product.id && status.status === "COMPLETED") {
           setImageUploads((current) => current.map((item) =>
             item.id === uploadId ? { ...item, status: "succeeded" } : item,
           ));
           setImageRecoveryNotice("This image had already finished uploading. The gallery has been refreshed without uploading it again.");
-          await queryClient.invalidateQueries({ queryKey: productsQueryKey(liveId), exact: true });
+          await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
           try {
-            clearProductImageUploadAttempt(creatorId, liveId, product.id, upload.idempotencyKey);
+            clearProductImageUploadAttempt(creatorId, storeId, product.id, upload.idempotencyKey);
             setStoredImageAttemptKeys((current) => current.filter((key) => key !== upload.idempotencyKey));
           } catch {
             setImageUploadRecoveryError("The upload completed, but its browser recovery record could not be cleared.");
@@ -450,7 +450,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
       }
       if (error instanceof ApiError && error.code === "PRODUCT_IMAGE_LIMIT_REACHED") {
         setImageSelectionMessage("The server reports that this product has reached the three-image limit. The gallery will refresh.");
-        void queryClient.invalidateQueries({ queryKey: productsQueryKey(liveId), exact: true });
+        void queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
       }
       setImageUploads((current) => current.map((item) =>
         item.id === uploadId ? { ...item, status: "failed", errorMessage: imageUploadErrorMessage(error) } : item,
@@ -483,7 +483,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
     setSelectingImageId(imageId);
     setImageManagementError(null);
     try {
-      await selectPrimaryImage.mutateAsync({ liveId, productId: product.id, imageId });
+      await selectPrimaryImage.mutateAsync({ storeId, productId: product.id, imageId });
     } catch {
       setImageManagementError("We couldn't make this image primary. The current primary image has not changed.");
     } finally {
@@ -499,7 +499,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
     setRemovingImageId(imageId);
     setImageManagementError(null);
     try {
-      await removeImage.mutateAsync({ liveId, productId: product.id, imageId });
+      await removeImage.mutateAsync({ storeId, productId: product.id, imageId });
       setImageToRemove(null);
     } catch (error) {
       setImageManagementError(imageRemovalErrorMessage(error));
@@ -546,7 +546,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
           ...(parsedOptions?.ok && Object.keys(parsedOptions.value).length > 0 ? { options: parsedOptions.value } : {}),
         };
         const attempt = { idempotencyKey: createProductCreationKey(), input };
-        savePendingProductCreation(creatorId, liveId, attempt);
+        savePendingProductCreation(creatorId, storeId, attempt);
         setPendingAttempt(attempt);
         setStorageError(null);
         submitCreate(attempt);
@@ -560,7 +560,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
 
     updateProduct.mutate(
       {
-        liveId,
+        storeId,
         productId: product.id,
         input: {
           name: normalizedName,
@@ -571,7 +571,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
             : {}),
         },
       },
-      { onSuccess: () => navigate(`/lives/${liveId}/products`, { state: { productNotice: "updated" } }) },
+      { onSuccess: () => navigate(`/stores/${storeId}/products`, { state: { productNotice: "updated" } }) },
     );
   }
 
@@ -598,7 +598,7 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
         : "The server rejected one or more product fields. Check the name, price, stock and options, then try again.";
   const mutationErrorMessage = product
     ? mutationError instanceof ApiError && mutationError.status === 404
-      ? "This product or Live is no longer available. Return to the product list and refresh."
+      ? "This product or Store is no longer available. Return to the product list and refresh."
       : "We couldn't save this product. Your current changes are still here; please try again."
     : createErrorMessage;
   const availableImageSlots = Math.max(
@@ -612,16 +612,16 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
 
   return (
     <>
-      <Link className="mb-5 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900" to={imageSetupStep && product ? `/lives/${liveId}/products/${encodeURIComponent(product.id)}/edit` : `/lives/${liveId}/products`}>{imageSetupStep ? "← Product details" : "← Back to products"}</Link>
+      <Link className="mb-5 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900" to={imageSetupStep && product ? `/stores/${storeId}/products/${encodeURIComponent(product.id)}/edit` : `/stores/${storeId}/products`}>{imageSetupStep ? "← Product details" : "← Back to products"}</Link>
       <PageHeader
         description={imageSetupStep
           ? `Your product is ready for ${liveName}. Add photos now or continue without them.`
           : `${product ? "Update product details for" : "Add a product to"} ${liveName}.`}
-        eyebrow="Live workspace"
+        eyebrow="Store workspace"
         title={imageSetupStep ? "Add product images" : product ? "Edit product" : "Add product"}
       />
       {imageSetupStep && <div className="mb-5"><Notice title="Product created." tone="success">Add up to three clear photos for <strong>{product?.name}</strong> to help customers recognize it, or continue without images.</Notice></div>}
-      {refreshError && <div className="mb-5"><Notice title="The latest Live or product data could not be refreshed. Your current form values are preserved." /></div>}
+      {refreshError && <div className="mb-5"><Notice title="The latest Store or product data could not be refreshed. Your current form values are preserved." /></div>}
       {pendingAttempt && !product && !deletedCreationResult && <div className="mb-5"><Notice title="An unfinished product creation was found." tone="info">The saved details and request key will be reused. Retrying is safe: if the product was already created, the server will return that product. Edit details only after this attempt succeeds or is deliberately discarded after a definite rejection.</Notice></div>}
       {recoveryError && <div className="mb-5"><Notice title={recoveryError}>Do not submit a new product from this tab until the saved attempt can be recovered.</Notice></div>}
       {storageError && <div className="mb-5"><Notice title={storageError} /></div>}
@@ -723,16 +723,16 @@ function ProductEditor({ creatorId, liveId, liveName, product, imageSetupStep, r
 
         {imageSetupStep ? (
           <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-between">
-            <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" state={{ productNotice: "created" }} to={`/lives/${liveId}/products`}>
+            <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" state={{ productNotice: "created" }} to={`/stores/${storeId}/products`}>
               {product?.images.length ? "Continue to products" : "Continue without images"}
             </Link>
-            <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" to={`/lives/${liveId}/products/new`}>
+            <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" to={`/stores/${storeId}/products/new`}>
               Add another product
             </Link>
           </div>
         ) : (
           <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
-            <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" to={`/lives/${liveId}/products`}>{pendingAttempt ? "Back to products" : "Cancel"}</Link>
+            <Link className="inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 text-sm font-semibold text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2" to={`/stores/${storeId}/products`}>{pendingAttempt ? "Back to products" : "Cancel"}</Link>
             <Button disabled={isPending || hasImageUploadInProgress || Boolean(recoveryError) || (deletedCreationResult && Boolean(pendingAttempt))} type="submit">{isPending ? "Saving…" : product ? "Save changes" : confirmedProduct ? "Confirm saved product" : deletedCreationResult && pendingAttempt ? "Creation result deleted" : pendingAttempt ? "Retry saved creation" : "Create product"}</Button>
           </div>
         )}

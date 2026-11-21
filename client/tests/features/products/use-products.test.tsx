@@ -29,7 +29,7 @@ afterEach(() => {
 describe("product image mutations", () => {
   const productWithImage: Product = {
     id: "product-1",
-    liveId: "live-1",
+    storeId: "live-1",
     name: "Classic shirt",
     price: 2500,
     options: null,
@@ -52,7 +52,7 @@ describe("product image mutations", () => {
   it("uses the nested upload product for cache updates and invalidates seller and public data", async () => {
     const originalProduct: Product = {
       id: "product-1",
-      liveId: "live-1",
+      storeId: "live-1",
       name: "Classic shirt",
       price: 2500,
       options: null,
@@ -96,7 +96,7 @@ describe("product image mutations", () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        liveId: "live-1",
+        storeId: "live-1",
         productId: "product-1",
         file,
         idempotencyKey: "c58d6a17-5790-4bfc-a0bd-859687084d34",
@@ -170,12 +170,12 @@ describe("product image mutations", () => {
 
     await act(async () => {
       await result.current.select.mutateAsync({
-        liveId: "live-1",
+        storeId: "live-1",
         productId: "product-1",
         imageId: "image-2",
       });
       await result.current.remove.mutateAsync({
-        liveId: "live-1",
+        storeId: "live-1",
         productId: "product-1",
         imageId: "image-2",
       });

@@ -8,7 +8,7 @@ import { Card, CardContent } from "../../../components/ui/card";
 import { StatusBadge } from "../../../components/ui/status-badge";
 import { buttonClassName } from "../../../components/ui/button-styles";
 import { formatPesewas } from "../../../lib/format-money";
-import { useLives } from "../../lives/hooks/use-lives";
+import { useStores } from "../../lives/hooks/use-lives";
 import { useExportOrdersCsv, useMarkOrderPaid, useSellerOrders } from "../hooks/use-seller-orders";
 import { OrderDetails } from "../components/order-details";
 import { OrderProductThumbnail } from "../components/order-product-thumbnail";
@@ -25,23 +25,23 @@ function safeFilenamePart(value: string) {
 }
 
 export function OrdersPage() {
-  const { liveId = "", orderId } = useParams();
-  const lives = useLives({ refetchOnMount: "always" });
-  const orders = useSellerOrders(liveId);
-  const markPaid = useMarkOrderPaid(liveId);
+  const { storeId = "", orderId } = useParams();
+  const stores = useStores({ refetchOnMount: "always" });
+  const orders = useSellerOrders(storeId);
+  const markPaid = useMarkOrderPaid(storeId);
   const exportOrders = useExportOrdersCsv();
   const [paidNotice, setPaidNotice] = useState(false);
   const [exportError, setExportError] = useState(false);
 
-  if (lives.isPending) return <LoadingState label="Loading Live details…" />;
-  if (lives.isError && !lives.data) return <RequestFailure label="We couldn't load the selected Live." onRetry={() => void lives.refetch()} />;
-  if (!lives.data) return <LoadingState label="Loading Live details…" />;
-  const live = lives.data.find((item) => item.id === liveId);
-  if (!live) return <EmptyState description="This Live may have been removed or may not belong to your account." title="Live not found" action={<Link className={buttonClassName("secondary")} to="/lives">All Lives</Link>} />;
-  const selectedLive = live;
+  if (stores.isPending) return <LoadingState label="Loading Store details…" />;
+  if (stores.isError && !stores.data) return <RequestFailure label="We couldn't load the selected Store." onRetry={() => void stores.refetch()} />;
+  if (!stores.data) return <LoadingState label="Loading Store details…" />;
+  const store = stores.data.find((item) => item.id === storeId);
+  if (!store) return <EmptyState description="This Store may have been removed or may not belong to your account." title="Store not found" action={<Link className={buttonClassName("secondary")} to="/stores">All Stores</Link>} />;
+  const selectedStore = store;
 
   if (orders.isPending) return <LoadingState label="Loading orders…" />;
-  if (orders.isError && !orders.data) return <RequestFailure label="We couldn't load orders for this Live." onRetry={() => void orders.refetch()} />;
+  if (orders.isError && !orders.data) return <RequestFailure label="We couldn't load orders for this Store." onRetry={() => void orders.refetch()} />;
   const orderList = orders.data ?? [];
   const selectedOrder = orderId ? orderList.find((order) => order.id === orderId) : undefined;
 
@@ -49,7 +49,7 @@ export function OrdersPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${safeFilenamePart(selectedLive.name)}-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `${safeFilenamePart(selectedStore.name)}-orders-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -59,7 +59,7 @@ export function OrdersPage() {
   async function handleExport() {
     setExportError(false);
     try {
-      const blob = await exportOrders.mutateAsync(liveId);
+      const blob = await exportOrders.mutateAsync(storeId);
       download(blob);
     } catch {
       setExportError(true);
@@ -68,16 +68,16 @@ export function OrdersPage() {
 
   if (orderId) {
     if (!selectedOrder) {
-      return <EmptyState title="Order not found" description="This order is not part of the selected Live, or it is no longer available." action={<Link className={buttonClassName("secondary")} to={`/lives/${liveId}/orders`}>Back to orders</Link>} />;
+      return <EmptyState title="Order not found" description="This order is not part of the selected Store, or it is no longer available." action={<Link className={buttonClassName("secondary")} to={`/stores/${storeId}/orders`}>Back to orders</Link>} />;
     }
     return (
       <>
         {orders.isError && <div className="mb-4"><RequestFailure label="Orders could not be refreshed. Showing the last confirmed information." onRetry={() => void orders.refetch()} /></div>}
         {paidNotice && <div className="mb-4"><Notice title="Order marked as paid." tone="success" /></div>}
         <OrderDetails
-          live={selectedLive}
+          store={selectedStore}
           order={selectedOrder}
-          onBack={`/lives/${liveId}/orders`}
+          onBack={`/stores/${storeId}/orders`}
           paymentAction={selectedOrder.paymentStatus === "PENDING" ? <OrderPaymentAction orderId={selectedOrder.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} /> : undefined}
         />
       </>
@@ -87,12 +87,12 @@ export function OrdersPage() {
   return (
     <>
       <div className="mb-5 flex flex-wrap gap-3">
-        <Link className={buttonClassName("ghost", "sm")} to={`/lives/${liveId}`}>← Live management</Link>
+        <Link className={buttonClassName("ghost", "sm")} to={`/stores/${storeId}`}>← Store management</Link>
         <Link className={buttonClassName("ghost", "sm")} to="/">Dashboard</Link>
       </div>
       <PageHeader
-        description={`Orders placed for ${selectedLive.name}. Payment is confirmed manually by you.`}
-        eyebrow="Live workspace"
+        description={`Orders placed for ${selectedStore.name}. Payment is confirmed manually by you.`}
+        eyebrow="Store workspace"
         title="Orders"
         action={<Button disabled={exportOrders.isPending} onClick={() => void handleExport()} type="button" variant="secondary">{exportOrders.isPending ? "Preparing export…" : "Export CSV"}</Button>}
       />
@@ -101,7 +101,7 @@ export function OrdersPage() {
       {paidNotice && <div className="mb-4"><Notice title="Order marked as paid." tone="success" /></div>}
 
       {orderList.length === 0 ? (
-        <EmptyState title="No orders yet" description="Customer orders for this Live will appear here." />
+        <EmptyState title="No orders yet" description="Customer orders for this Store will appear here." />
       ) : (
         <>
           <div className="hidden overflow-hidden rounded-panel border border-border bg-white md:block">
@@ -127,7 +127,7 @@ export function OrdersPage() {
                     </td>
                     <td className="px-4 py-4 font-semibold tabular-nums text-ink">{formatPesewas(order.totalAmount)}</td>
                     <td className="px-4 py-4"><StatusBadge tone={order.paymentStatus === "PAID" ? "paid" : "pending"}>{order.paymentStatus === "PAID" ? "Paid" : "Unpaid"}</StatusBadge></td>
-                    <td className="px-4 py-4"><div className="flex justify-end gap-2"><Link className={buttonClassName("secondary", "sm")} to={`/lives/${liveId}/orders/${order.id}`}>View order</Link>{order.paymentStatus === "PENDING" && <OrderPaymentAction orderId={order.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} />}</div></td>
+                    <td className="px-4 py-4"><div className="flex justify-end gap-2"><Link className={buttonClassName("secondary", "sm")} to={`/stores/${storeId}/orders/${order.id}`}>View order</Link>{order.paymentStatus === "PENDING" && <OrderPaymentAction orderId={order.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} />}</div></td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -146,7 +146,7 @@ export function OrdersPage() {
                   <span className="text-sm text-ink-muted">{order.items.length} {order.items.length === 1 ? "line" : "lines"}{order.items.length > 3 ? ` · +${order.items.length - 3} more` : ""}</span>
                 </div>
                 <div className="flex justify-between gap-3 text-sm"><span className="text-ink-muted">{formatOrderDate(order.createdAt)} · {order.items.length} {order.items.length === 1 ? "line" : "lines"}</span><span className="font-bold tabular-nums text-ink">{formatPesewas(order.totalAmount)}</span></div>
-                <div className="flex flex-wrap gap-2"><Link className={buttonClassName("secondary", "sm")} to={`/lives/${liveId}/orders/${order.id}`}>View order</Link>{order.paymentStatus === "PENDING" && <OrderPaymentAction orderId={order.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} />}</div>
+                <div className="flex flex-wrap gap-2"><Link className={buttonClassName("secondary", "sm")} to={`/stores/${storeId}/orders/${order.id}`}>View order</Link>{order.paymentStatus === "PENDING" && <OrderPaymentAction orderId={order.id} onMarkPaid={(id) => markPaid.mutateAsync(id)} onSuccess={() => setPaidNotice(true)} pending={markPaid.isPending} />}</div>
               </CardContent></Card>
             </li>
           ))}</ul>

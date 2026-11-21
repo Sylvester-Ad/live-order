@@ -1,12 +1,18 @@
 import { StatusBadge } from "../../../components/ui/status-badge";
-import type { Live } from "../api/lives-api";
+import type { Store } from "../api/lives-api";
 
-const statusTones: Record<Live["status"], "draft" | "active" | "ended"> = {
+const statusTones: Record<Store["status"], "draft" | "active" | "ended"> = {
   DRAFT: "draft",
-  ACTIVE: "active",
-  ENDED: "ended",
+  PUBLISHED: "active",
+  UNPUBLISHED: "ended",
 };
 
-export function LiveStatusBadge({ status }: { status: Live["status"] }) {
-  return <StatusBadge tone={statusTones[status]}>{status}</StatusBadge>;
+const statusLabels: Record<Store["status"], string> = {
+  DRAFT: "Draft",
+  PUBLISHED: "Published",
+  UNPUBLISHED: "Unpublished",
+};
+
+export function StoreStatusBadge({ status }: { status: Store["status"] }) {
+  return <StatusBadge tone={statusTones[status]}>{statusLabels[status]}</StatusBadge>;
 }

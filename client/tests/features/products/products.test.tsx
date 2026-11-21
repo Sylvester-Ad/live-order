@@ -23,7 +23,7 @@ const live = {
 function product(overrides: Partial<Product> = {}): Product {
   return {
     id: "product-1",
-    liveId: "live-1",
+    storeId: "live-1",
     name: "Classic T-shirt",
     price: 2550,
     options: { sizes: ["S", "M"], colors: ["Black", "White"] },
@@ -82,8 +82,8 @@ function productFetch(
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-    if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-    const uploadStatusPath = url.match(/\/api\/v1\/lives\/live-1\/product-image-uploads\/([^/?]+)$/);
+    if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+    const uploadStatusPath = url.match(/\/api\/v1\/stores\/live-1\/product-image-uploads\/([^/?]+)$/);
     if (uploadStatusPath) {
       const idempotencyKey = decodeURIComponent(uploadStatusPath[1]);
       if (completedKeys.has(idempotencyKey)) {
@@ -101,7 +101,7 @@ function productFetch(
       }
       return response({ error: { code: "UPLOAD_NOT_FOUND", message: "Missing" } }, 404);
     }
-    if (/\/api\/v1\/lives\/live-1\/products\/[^/]+\/image-uploads\/pending$/.test(url)) {
+    if (/\/api\/v1\/stores\/live-1\/products\/[^/]+\/image-uploads\/pending$/.test(url)) {
       if (rejectPendingUploads) {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Pending uploads unavailable" } }, 500);
       }
@@ -109,10 +109,10 @@ function productFetch(
         idempotencyKey, status: "PENDING" as const, canResume: true as const, createdAt: null,
       })) });
     }
-    if (url.endsWith("/api/v1/lives/live-1/products") && (!init?.method || init.method === "GET")) {
+    if (url.endsWith("/api/v1/stores/live-1/products") && (!init?.method || init.method === "GET")) {
       return response({ data: products });
     }
-    if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+    if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
       if (init.body instanceof FormData) {
         return response({ error: { code: "UNSUPPORTED_PRODUCT_MEDIA_TYPE", message: "JSON only" } }, 415);
       }
@@ -137,7 +137,7 @@ function productFetch(
       products = [...products, created];
       return response({ data: created }, 201);
     }
-    const imagePath = url.match(/\/api\/v1\/lives\/live-1\/products\/([^/]+)\/images$/);
+    const imagePath = url.match(/\/api\/v1\/stores\/live-1\/products\/([^/]+)\/images$/);
     if (imagePath && init?.method === "POST") {
       const productId = imagePath[1];
       const current = products.find((item) => item.id === productId);
@@ -175,13 +175,13 @@ function productFetch(
       products = products.map((item) => item.id === updated.id ? updated : item);
       return response({ data: { product: updated, image } }, 201);
     }
-    if (url.endsWith("/api/v1/lives/live-1/products/product-1") && init?.method === "PATCH") {
+    if (url.endsWith("/api/v1/stores/live-1/products/product-1") && init?.method === "PATCH") {
       const body = JSON.parse(String(init.body)) as Partial<Product>;
       const updated = { ...products[0], ...body } as Product;
       products = products.map((item) => item.id === updated.id ? updated : item);
       return response({ data: updated });
     }
-    const primaryImagePath = url.match(/\/api\/v1\/lives\/live-1\/products\/([^/]+)\/images\/([^/]+)\/primary$/);
+    const primaryImagePath = url.match(/\/api\/v1\/stores\/live-1\/products\/([^/]+)\/images\/([^/]+)\/primary$/);
     if (primaryImagePath && init?.method === "PATCH") {
       if (failPrimarySelection) {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Selection failed" } }, 500);
@@ -197,14 +197,14 @@ function productFetch(
       products = products.map((item) => item.id === updated.id ? updated : item);
       return response({ data: updated });
     }
-    if (url.endsWith("/api/v1/lives/live-1/products/product-1") && init?.method === "DELETE") {
+    if (url.endsWith("/api/v1/stores/live-1/products/product-1") && init?.method === "DELETE") {
       if (rejectDelete) {
         return response({ error: { code: "PRODUCT_IN_USE", message: "Products with order history cannot be deleted" } }, 409);
       }
       products = products.filter((item) => item.id !== "product-1");
       return new Response(null, { status: 204 });
     }
-    const imageRemovalPath = url.match(/\/api\/v1\/lives\/live-1\/products\/([^/]+)\/images\/([^/]+)$/);
+    const imageRemovalPath = url.match(/\/api\/v1\/stores\/live-1\/products\/([^/]+)\/images\/([^/]+)$/);
     if (imageRemovalPath && init?.method === "DELETE") {
       if (failImageRemoval) {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Removal failed" } }, 500);
@@ -249,12 +249,12 @@ afterEach(() => {
 });
 
 describe("seller product management", () => {
-  it("keeps create-form values when the Live query refetches and fails", async () => {
+  it("keeps create-form values when the Store query refetches and fails", async () => {
     let liveRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) {
+      if (url.endsWith("/api/v1/stores")) {
         liveRequests += 1;
         return liveRequests === 1
           ? response({ data: [live] })
@@ -264,15 +264,15 @@ describe("seller product management", () => {
     });
     const queryClient = createTestQueryClient();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new", queryClient);
+    renderPath("/stores/live-1/products/new", queryClient);
 
     const nameInput = await screen.findByLabelText("Product name");
     fireEvent.change(nameInput, { target: { value: "My unsaved product" } });
-    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["lives"] }); });
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["stores"] }); });
 
     expect(screen.getByLabelText("Product name")).toHaveValue("My unsaved product");
     expect(screen.getByRole("button", { name: "Create product" })).toBeEnabled();
-    await screen.findByText("The latest Live or product data could not be refreshed. Your current form values are preserved.");
+    await screen.findByText("The latest Store or product data could not be refreshed. Your current form values are preserved.");
     queryClient.clear();
   });
 
@@ -282,8 +282,8 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products")) {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products")) {
         productRequests += 1;
         if (productRequests >= 2) currentProduct = product({ name: "Server refreshed name", price: 4000, stockQuantity: 20 });
         return response({ data: [currentProduct] });
@@ -292,11 +292,11 @@ describe("seller product management", () => {
     });
     const queryClient = createTestQueryClient();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit", queryClient);
+    renderPath("/stores/live-1/products/product-1/edit", queryClient);
 
     const nameInput = await screen.findByLabelText("Product name");
     fireEvent.change(nameInput, { target: { value: "My product draft" } });
-    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["products", "live-1"] }); });
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["stores", "live-1", "products"] }); });
     await waitFor(() => expect(productRequests).toBeGreaterThan(1));
 
     expect(screen.getByLabelText("Product name")).toHaveValue("My product draft");
@@ -307,23 +307,23 @@ describe("seller product management", () => {
   });
 
   it("initializes a different product when the route changes without leaking the previous draft", async () => {
-    const otherLive = { ...live, id: "live-2", name: "Saturday market" };
-    const otherProduct = product({ id: "product-2", liveId: "live-2", name: "Canvas tote", price: 1200, stockQuantity: 3 });
+    const otherStore = { ...live, id: "live-2", name: "Saturday market" };
+    const otherProduct = product({ id: "product-2", storeId: "live-2", name: "Canvas tote", price: 1200, stockQuantity: 3 });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live, otherLive] });
-      if (url.endsWith("/api/v1/lives/live-1/products")) return response({ data: [product()] });
-      if (url.endsWith("/api/v1/lives/live-2/products")) return response({ data: [otherProduct] });
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live, otherStore] });
+      if (url.endsWith("/api/v1/stores/live-1/products")) return response({ data: [product()] });
+      if (url.endsWith("/api/v1/stores/live-2/products")) return response({ data: [otherProduct] });
       throw new Error(`Unexpected request: ${url}`);
     });
     const queryClient = createTestQueryClient();
-    const router = createTestRouter(["/lives/live-1/products/product-1/edit"]);
+    const router = createTestRouter(["/stores/live-1/products/product-1/edit"]);
     vi.stubGlobal("fetch", fetchMock);
     render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Unsaved first product" } });
-    await act(async () => { await router.navigate("/lives/live-2/products/product-2/edit"); });
+    await act(async () => { await router.navigate("/stores/live-2/products/product-2/edit"); });
 
     expect(await screen.findByLabelText("Product name")).toHaveValue("Canvas tote");
     expect(screen.getByLabelText("Price (GHS)")).toHaveValue("12.00");
@@ -331,19 +331,19 @@ describe("seller product management", () => {
     queryClient.clear();
   });
 
-  it("lists only the selected Live's products with formatted price and options", async () => {
+  it("lists only the selected Store's products with formatted price and options", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
     expect(await screen.findByRole("heading", { name: "Products" })).toBeInTheDocument();
-    expect(screen.getByText("Friday fashion")).toBeInTheDocument();
+    expect(screen.getAllByText("Friday fashion").length).toBeGreaterThan(0);
     expect(screen.getByText("Classic T-shirt")).toBeInTheDocument();
     expect(screen.getByText("GH₵ 25.50")).toBeInTheDocument();
     expect(screen.getByText("8 in stock")).toBeInTheDocument();
     expect(screen.getByText("S · M")).toBeInTheDocument();
     expect(screen.getByText("No image")).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/lives/live-1/products"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/stores/live-1/products"))).toBe(true);
   });
 
   it("shows a product's only gallery image on its card", async () => {
@@ -351,7 +351,7 @@ describe("seller product management", () => {
       images: [productImage("image-1", "https://images.example/only.png", true)],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
     expect(await screen.findByRole("img", { name: "Classic T-shirt" })).toHaveAttribute(
       "src",
@@ -368,7 +368,7 @@ describe("seller product management", () => {
       ],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
     expect(await screen.findByRole("img", { name: "Classic T-shirt" })).toHaveAttribute(
       "src",
@@ -376,39 +376,39 @@ describe("seller product management", () => {
     );
   });
 
-  it("shows an actionable empty state for a Live with no products", async () => {
+  it("shows an actionable empty state for a Store with no products", async () => {
     vi.stubGlobal("fetch", productFetch());
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
     expect(await screen.findByRole("heading", { name: "No products yet" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add your first product" })).toHaveAttribute(
       "href",
-      "/lives/live-1/products/new",
+      "/stores/live-1/products/new",
     );
   });
 
-  it("does not display a product whose response belongs to another Live", async () => {
-    vi.stubGlobal("fetch", productFetch([product({ liveId: "live-2" })]));
-    renderPath("/lives/live-1/products");
+  it("does not display a product whose response belongs to another Store", async () => {
+    vi.stubGlobal("fetch", productFetch([product({ storeId: "live-2" })]));
+    renderPath("/stores/live-1/products");
 
     expect(await screen.findByRole("heading", { name: "No products yet" })).toBeInTheDocument();
     expect(screen.queryByText("Classic T-shirt")).not.toBeInTheDocument();
   });
 
-  it("shows a loading state while the selected Live's products are being fetched", async () => {
+  it("shows a loading state while the selected Store's products are being fetched", async () => {
     let resolveProducts!: (value: Response) => void;
     const pendingProducts = new Promise<Response>((resolve) => { resolveProducts = resolve; });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products")) return pendingProducts;
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products")) return pendingProducts;
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
-    expect(await screen.findByText("Loading products for this Live…")).toBeInTheDocument();
+    expect(await screen.findByText("Loading products for this Store…")).toBeInTheDocument();
     resolveProducts(response({ data: [] }));
     expect(await screen.findByRole("heading", { name: "No products yet" })).toBeInTheDocument();
   });
@@ -417,16 +417,16 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products")) {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products")) {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Request failed" } }, 500);
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
-    expect(await screen.findByText("We couldn't load this Live's products.", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText("We couldn't load this Store's products.", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "No products yet" })).not.toBeInTheDocument();
   });
@@ -434,7 +434,7 @@ describe("seller product management", () => {
   it("creates a product with stock and visually configured choices", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "  Cotton shirt " } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.50" } });
@@ -473,11 +473,11 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products") && (!init?.method || init.method === "GET")) {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products") && (!init?.method || init.method === "GET")) {
         return response({ data: committedProduct ? [committedProduct] : [] });
       }
-      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         createAttempts += 1;
         const key = new Headers(init.headers).get("Idempotency-Key");
         createKeys.push(key ?? "");
@@ -498,7 +498,7 @@ describe("seller product management", () => {
     });
     const queryClient = createTestQueryClient();
     vi.stubGlobal("fetch", fetchMock);
-    const firstRender = renderPath("/lives/live-1/products/new", queryClient);
+    const firstRender = renderPath("/stores/live-1/products/new", queryClient);
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "  Saved shirt  " } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "19.50" } });
@@ -514,7 +514,7 @@ describe("seller product management", () => {
     expect(savedAttempt.input).toEqual({ name: "Saved shirt", price: 1950, stockQuantity: 7 });
 
     firstRender.unmount();
-    renderPath("/lives/live-1/products/new", queryClient);
+    renderPath("/stores/live-1/products/new", queryClient);
 
     expect(await screen.findByLabelText("Product name")).toHaveValue("Saved shirt");
     expect(screen.getByLabelText("Product name")).toBeDisabled();
@@ -534,14 +534,14 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         return response({ error: { code: "REQUEST_TIMEOUT", message: "Request timed out" } }, 408);
       }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Saved shirt" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "19.50" } });
@@ -559,11 +559,11 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products") && (!init?.method || init.method === "GET")) {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products") && (!init?.method || init.method === "GET")) {
         return response({ data: [] });
       }
-      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         creationKeys.push(new Headers(init.headers).get("Idempotency-Key") ?? "");
         creationBodies.push(String(init.body));
         if (creationKeys.length === 1) {
@@ -581,7 +581,7 @@ describe("seller product management", () => {
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Deleted shirt" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "19.50" } });
@@ -620,7 +620,7 @@ describe("seller product management", () => {
   it("uses a new idempotency key for a genuinely new product", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "First product" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "10.00" } });
@@ -642,7 +642,7 @@ describe("seller product management", () => {
   it("rejects invalid price and unfinished options before sending a create request", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "A product" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "1.001" } });
@@ -657,7 +657,7 @@ describe("seller product management", () => {
   it("edits option group and choices while preserving the configured options format", async () => {
     const fetchMock = productFetch([product({ options: { Size: ["S"] } })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.change(await screen.findByLabelText("Option group 1 name"), { target: { value: "Colour" } });
     fireEvent.change(screen.getByLabelText("Colour choice 1"), { target: { value: "Black" } });
@@ -674,7 +674,7 @@ describe("seller product management", () => {
   it("previews, edits, and removes choices in a large option group", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.click(await screen.findByRole("button", { name: "Add option group" }));
     fireEvent.change(screen.getByLabelText("Option group 1 name"), { target: { value: "Colour" } });
@@ -707,7 +707,7 @@ describe("seller product management", () => {
   it("explains duplicate variation choices before submitting", async () => {
     const fetchMock = productFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Cotton shirt" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "25.50" } });
@@ -725,7 +725,7 @@ describe("seller product management", () => {
   it("allows stock quantity to be edited back to zero", async () => {
     const fetchMock = productFetch([product({ stockQuantity: 5 })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.change(await screen.findByLabelText("Stock quantity"), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -738,15 +738,15 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "GET") return response({ data: [] });
-      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "GET") return response({ data: [] });
+      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         return response({ error: { code: "VALIDATION_ERROR", message: "Request validation failed" } }, 400);
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/new");
+    renderPath("/stores/live-1/products/new");
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "A product" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "12.00" } });
     fireEvent.click(screen.getByRole("button", { name: "Create product" }));
@@ -764,7 +764,7 @@ describe("seller product management", () => {
     const original = product();
     const fetchMock = productFetch([original]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Cotton T-shirt" } });
     fireEvent.change(screen.getByLabelText("Price (GHS)"), { target: { value: "30.00" } });
@@ -780,7 +780,7 @@ describe("seller product management", () => {
   it("clears options only when the creator chooses to clear them", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.click(await screen.findByRole("button", { name: "Clear options" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -792,7 +792,7 @@ describe("seller product management", () => {
 
   it("shows an empty state for a product with no gallery images", async () => {
     vi.stubGlobal("fetch", productFetch([product()]));
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     expect(await screen.findByRole("heading", { name: "Product image gallery" })).toBeInTheDocument();
     expect(screen.getByText("No product images yet.")).toBeInTheDocument();
@@ -802,7 +802,7 @@ describe("seller product management", () => {
     vi.stubGlobal("fetch", productFetch([product({
       images: [productImage("image-1", "https://images.example/only.png", true)],
     })]));
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     expect(await screen.findByRole("img", { name: "Classic T-shirt image 1" })).toHaveAttribute(
       "src",
@@ -820,7 +820,7 @@ describe("seller product management", () => {
         productImage("image-3", "https://images.example/third.png"),
       ],
     })]));
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     expect(await screen.findByRole("img", { name: "Classic T-shirt image 1" })).toHaveAttribute(
       "src",
@@ -846,7 +846,7 @@ describe("seller product management", () => {
       ],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    const router = createTestRouter(["/lives/live-1/products/product-1/edit"]);
+    const router = createTestRouter(["/stores/live-1/products/product-1/edit"]);
     render(<AppProviders><RouterProvider router={router} /></AppProviders>);
 
     expect(await screen.findAllByText("Primary")).toHaveLength(1);
@@ -861,7 +861,7 @@ describe("seller product management", () => {
     expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith("/products/product-1/images/image-2/primary") && init?.method === "PATCH",
     )).toBe(true);
-    await act(async () => { await router.navigate("/lives/live-1/products"); });
+    await act(async () => { await router.navigate("/stores/live-1/products"); });
     expect(await screen.findByRole("img", { name: "Classic T-shirt" })).toHaveAttribute(
       "src",
       "https://images.example/second.png",
@@ -883,7 +883,7 @@ describe("seller product management", () => {
       true,
     );
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.click(await screen.findByRole("button", { name: "Make primary" }));
 
@@ -903,7 +903,7 @@ describe("seller product management", () => {
       ],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.click(await screen.findAllByRole("button", { name: "Remove image" }).then((buttons) => buttons[1]!));
     const dialog = screen.getByRole("alertdialog", { name: "Remove this image?" });
@@ -931,7 +931,7 @@ describe("seller product management", () => {
       ],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Remove image" }))[0]!);
     const dialog = screen.getByRole("alertdialog", { name: "Remove this image?" });
@@ -950,7 +950,7 @@ describe("seller product management", () => {
       images: [productImage("image-1", "https://images.example/only.png", true)],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.click(await screen.findByRole("button", { name: "Remove image" }));
     fireEvent.click(within(screen.getByRole("alertdialog", { name: "Remove this image?" }))
@@ -965,7 +965,7 @@ describe("seller product management", () => {
       images: [productImage("image-1", "https://images.example/primary.png", true)],
     })], true, 0, [], false, false, true);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.click(await screen.findByRole("button", { name: "Remove image" }));
     fireEvent.click(within(screen.getByRole("alertdialog", { name: "Remove this image?" }))
@@ -982,15 +982,15 @@ describe("seller product management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/products") && init?.method === "GET") return response({ data: [product()] });
-      if (url.endsWith("/api/v1/lives/live-1/products/product-1") && init?.method === "PATCH") {
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
+      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "GET") return response({ data: [product()] });
+      if (url.endsWith("/api/v1/stores/live-1/products/product-1") && init?.method === "PATCH") {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Request failed" } }, 500);
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     fireEvent.change(await screen.findByLabelText("Product name"), { target: { value: "Unsaved name" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -999,10 +999,10 @@ describe("seller product management", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 
-  it("removes a product from its Live after confirmed deletion succeeds", async () => {
+  it("removes a product from its Store after confirmed deletion succeeds", async () => {
     const fetchMock = productFetch([product()], false);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("alertdialog", { name: "Delete this product?" });
@@ -1016,14 +1016,14 @@ describe("seller product management", () => {
   it("keeps a product visible when deletion is rejected because of order history", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products");
+    renderPath("/stores/live-1/products");
 
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("alertdialog", { name: "Delete this product?" });
     expect(within(dialog).getByText(/Classic T-shirt/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete product" }));
 
-    expect(await screen.findByText("This product has order history and can't be deleted. It is still in this Live.")).toBeInTheDocument();
+    expect(await screen.findByText("This product has order history and can't be deleted. It is still in this Store.")).toBeInTheDocument();
     expect(screen.getByText("Classic T-shirt")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true));
@@ -1032,7 +1032,7 @@ describe("seller product management", () => {
   it("uploads a product image with an idempotency key and updates the gallery", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     const file = new File(["image"], "shirt.png", { type: "image/png" });
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), { target: { files: [file] } });
@@ -1063,7 +1063,7 @@ describe("seller product management", () => {
     }));
     const fetchMock = productFetch([product()], true, 0, [], false, false, false, pending);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     const pendingList = await screen.findByRole("list", { name: "Unfinished image uploads" });
     expect(within(pendingList).getByText("Upload unfinished — choose the original file to retry.")).toBeInTheDocument();
@@ -1099,7 +1099,7 @@ describe("seller product management", () => {
     }];
     const fetchMock = productFetch([product()], true, 0, [], false, false, false, pending);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), {
       target: { files: [new File(["different bytes"], "new-photo.png", { type: "image/png" })] },
@@ -1127,7 +1127,7 @@ describe("seller product management", () => {
     }];
     const fetchMock = productFetch([product()], true, 1, [], false, false, false, pending);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), {
       target: { files: [file] },
     });
@@ -1158,7 +1158,7 @@ describe("seller product management", () => {
       [key],
     );
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     expect(await screen.findByText("An upload completed before the page refreshed. The product gallery has been updated.")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Classic T-shirt image 1" })).toHaveAttribute(
@@ -1174,7 +1174,7 @@ describe("seller product management", () => {
   it("keeps the editor usable and explains when pending uploads cannot be checked", async () => {
     const fetchMock = productFetch([product()], true, 0, [], false, false, false, [], [], true);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit", createTestQueryClient());
+    renderPath("/stores/live-1/products/product-1/edit", createTestQueryClient());
 
     expect(await screen.findByText("Unfinished uploads could not be checked. Refresh this page or try again before starting another upload.")).toBeInTheDocument();
     expect(screen.getByLabelText("Product name")).toHaveValue("Classic T-shirt");
@@ -1184,7 +1184,7 @@ describe("seller product management", () => {
   it("uploads multiple selected images independently with different idempotency keys", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     const files = [
       new File(["first image"], "first.png", { type: "image/png" }),
       new File(["second image"], "second.png", { type: "image/png" }),
@@ -1219,7 +1219,7 @@ describe("seller product management", () => {
       ],
     })]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
 
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), {
       target: {
@@ -1246,7 +1246,7 @@ describe("seller product management", () => {
   it("does not submit the same selected upload twice while it is in progress", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), {
       target: { files: [new File(["image"], "photo.png", { type: "image/png" })] },
     });
@@ -1266,7 +1266,7 @@ describe("seller product management", () => {
   it("validates every selected file before allowing an upload", async () => {
     const fetchMock = productFetch([product()]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), {
       target: {
         files: [
@@ -1287,7 +1287,7 @@ describe("seller product management", () => {
   it("keeps successful uploads and retries only the failed file with its original key", async () => {
     const fetchMock = productFetch([product()], true, 0, ["bad.png"]);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     const goodFile = new File(["good image"], "good.png", { type: "image/png" });
     const badFile = new File(["bad image"], "bad.png", { type: "image/png" });
 
@@ -1331,7 +1331,7 @@ describe("seller product management", () => {
   it("shows a clear recovery message when the backend reports the image limit", async () => {
     const fetchMock = productFetch([product()], true, 0, [], true);
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), {
       target: { files: [new File(["image"], "photo.png", { type: "image/png" })] },
     });
@@ -1345,7 +1345,7 @@ describe("seller product management", () => {
   it("reuses the upload key after a timeout and page refresh when the original file is reselected", async () => {
     const firstFetch = productFetch([product()], true, 1);
     vi.stubGlobal("fetch", firstFetch);
-    const firstRender = renderPath("/lives/live-1/products/product-1/edit");
+    const firstRender = renderPath("/stores/live-1/products/product-1/edit");
     const file = new File(["same original bytes"], "shirt.png", { type: "image/png" });
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), { target: { files: [file] } });
     await screen.findByText("shirt.png");
@@ -1361,7 +1361,7 @@ describe("seller product management", () => {
 
     const secondFetch = productFetch([product()]);
     vi.stubGlobal("fetch", secondFetch);
-    renderPath("/lives/live-1/products/product-1/edit");
+    renderPath("/stores/live-1/products/product-1/edit");
     const reselectedFile = new File(["same original bytes"], "shirt.png", { type: "image/png" });
     fireEvent.change(await screen.findByLabelText("Choose images for Classic T-shirt"), { target: { files: [reselectedFile] } });
     await screen.findByText("shirt.png");

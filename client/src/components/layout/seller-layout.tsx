@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { NavLink, Outlet, useMatch, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 
 import { useCurrentCreator, useLogout } from "../../features/auth/hooks/use-auth";
+import { useStores } from "../../features/lives/hooks/use-lives";
 import { cx } from "../../lib/cx";
 import { Button } from "../ui/button";
 import { Notice } from "../feedback/feedback";
@@ -9,23 +10,31 @@ import { Brand } from "./brand";
 
 const primaryNavigation = [
   { label: "Dashboard", to: "/", end: true },
-  { label: "Lives", to: "/lives", end: false },
-  { label: "Payments", to: "/settings/payments", end: false },
+  { label: "Stores", to: "/stores", end: false },
 ];
 
 export function SellerLayout() {
-  const liveId = useMatch("/lives/:liveId/*")?.params.liveId;
+  const storeId = useMatch("/stores/:storeId/*")?.params.storeId;
+  const stores = useStores();
+  const location = useLocation();
   const [logoutError, setLogoutError] = useState(false);
   const creator = useCurrentCreator();
   const logout = useLogout();
   const navigate = useNavigate();
-  const navigation = liveId
+  const navigation = storeId
     ? [
         ...primaryNavigation,
-        { label: "Products", to: `/lives/${liveId}/products`, end: false },
-        { label: "Orders", to: `/lives/${liveId}/orders`, end: false },
+        { label: "Products", to: `/stores/${storeId}/products`, end: false },
+        { label: "Orders", to: `/stores/${storeId}/orders`, end: false },
+        { label: "Payments", to: `/stores/${storeId}/settings/payments`, end: false },
       ]
     : primaryNavigation;
+
+  function switchStore(nextStoreId: string) {
+    if (!nextStoreId || !storeId) return;
+    const section = location.pathname.replace(/^\/stores\/[^/]+/, "");
+    void navigate(`/stores/${encodeURIComponent(nextStoreId)}${section}`);
+  }
 
   async function handleLogout() {
     setLogoutError(false);
@@ -91,6 +100,19 @@ export function SellerLayout() {
             <div className="lg:hidden">
               <Brand />
             </div>
+            {storeId && stores.data && (
+              <label className="min-w-0 flex-1 sm:flex-none">
+                <span className="sr-only">Managing Store</span>
+                <select
+                  aria-label="Managing Store"
+                  className="min-h-10 w-full max-w-64 rounded-control border border-border bg-white px-3 text-sm font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
+                  onChange={(event) => switchStore(event.currentTarget.value)}
+                  value={storeId}
+                >
+                  {stores.data.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+                </select>
+              </label>
+            )}
             <div className="ml-auto flex items-center gap-3">
               <span className="hidden text-sm font-medium text-ink-muted sm:block">
                 {creator.data?.name}

@@ -5,21 +5,19 @@ import { Notice } from "../../../components/feedback/feedback";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { buttonClassName } from "../../../components/ui/button-styles";
-import type { Live } from "../api/lives-api";
-import { LiveStatusBadge } from "./live-status-badge";
+import type { Store } from "../api/lives-api";
+import { StoreStatusBadge } from "./live-status-badge";
 
 function formatDate(value: string | null) {
   if (!value) return "Date unavailable";
-
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Date unavailable";
-
   return new Intl.DateTimeFormat("en-GH", { dateStyle: "medium" }).format(date);
 }
 
-export function LiveCard({ live }: { live: Live }) {
+export function StoreCard({ store }: { store: Store }) {
   const [clipboardNotice, setClipboardNotice] = useState<string | null>(null);
-  const storefrontUrl = `${window.location.origin}/live/${live.slug}`;
+  const storefrontUrl = `${window.location.origin}/live/${store.slug}`;
 
   async function copyStorefrontLink() {
     try {
@@ -27,7 +25,7 @@ export function LiveCard({ live }: { live: Live }) {
       await navigator.clipboard.writeText(storefrontUrl);
       setClipboardNotice("Storefront link copied.");
     } catch {
-      setClipboardNotice("Couldn't copy the storefront link. Select and copy the URL from the Live workspace.");
+      setClipboardNotice("Couldn't copy the storefront link. Select and copy the URL from the Store workspace.");
     }
   }
 
@@ -36,22 +34,22 @@ export function LiveCard({ live }: { live: Live }) {
       <CardContent className="grid gap-4">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-base font-bold text-ink">{live.name}</h2>
-            <LiveStatusBadge status={live.status} />
+            <h2 className="truncate text-base font-bold text-ink">{store.name}</h2>
+            <StoreStatusBadge status={store.status} />
           </div>
-          <p className="text-sm text-ink-muted">Created {formatDate(live.createdAt)}</p>
+          <p className="text-sm text-ink-muted">/{store.slug} · Created {formatDate(store.createdAt)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link className={buttonClassName("primary", "sm")} to={`/lives/${live.id}`}>Manage Live</Link>
-          <Link className={buttonClassName("secondary", "sm")} to={`/lives/${live.id}/orders`}>Manage orders</Link>
-          {live.status === "ACTIVE" && (
+          <Link className={buttonClassName("primary", "sm")} to={`/stores/${encodeURIComponent(store.id)}`}>Manage Store</Link>
+          <Link className={buttonClassName("secondary", "sm")} to={`/stores/${encodeURIComponent(store.id)}/orders`}>Manage orders</Link>
+          {store.status === "PUBLISHED" && (
             <>
               <a className={buttonClassName("secondary", "sm")} href={storefrontUrl} rel="noopener noreferrer" target="_blank">Open storefront</a>
               <Button onClick={() => void copyStorefrontLink()} size="sm" type="button" variant="secondary">Copy storefront link</Button>
             </>
           )}
-          {live.tiktokLiveUrl && (
-            <a className={buttonClassName("ghost", "sm")} href={live.tiktokLiveUrl} rel="noopener noreferrer" target="_blank">Open TikTok LIVE</a>
+          {store.tiktokLiveUrl && (
+            <a className={buttonClassName("ghost", "sm")} href={store.tiktokLiveUrl} rel="noopener noreferrer" target="_blank">Open TikTok LIVE</a>
           )}
         </div>
         {clipboardNotice && <Notice title={clipboardNotice} tone={clipboardNotice.startsWith("Storefront link copied") ? "success" : "error"} />}

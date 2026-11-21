@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -66,12 +66,12 @@ describe("application routes", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/v1/public/lives/friday-fashion");
   });
 
-  it("signs in, restores the seller route, and shows real Lives", async () => {
+  it("signs in, restores the seller route, and shows the seller's Stores", async () => {
     const live = {
       id: "live-1",
       name: "Friday Fashion Live",
       slug: "friday-fashion",
-      status: "ACTIVE",
+      status: "PUBLISHED",
       tiktokLiveUrl: null,
       createdAt: "2026-10-12T10:00:00.000Z",
       updatedAt: "2026-10-12T10:00:00.000Z",
@@ -89,7 +89,7 @@ describe("application routes", () => {
         expect(JSON.parse(String(init?.body))).toEqual({ accessCode: "seller-code" });
         return jsonResponse({ data: { id: "creator-1", name: "Ama" } });
       }
-      if (url.includes("/lives")) {
+      if (url.includes("/stores")) {
         return jsonResponse({ data: [live] });
       }
 
@@ -105,8 +105,8 @@ describe("application routes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByRole("heading", { name: "Welcome back, Ama" })).toBeInTheDocument();
-    const activeSessions = await screen.findByRole("region", { name: "Active selling sessions" });
-    expect(within(activeSessions).getByRole("link", { name: "Open Friday Fashion Live workspace" }))
+    await screen.findByRole("region", { name: "Store summary" });
+    expect(screen.getByRole("link", { name: "Open Friday Fashion Live workspace" }))
       .toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });

@@ -9,36 +9,36 @@ import { ConfirmationDialog } from "../../../components/ui/confirmation-dialog";
 import { buttonClassName } from "../../../components/ui/button-styles";
 import { ApiError } from "../../../lib/api-client";
 import { formatPesewas } from "../../../lib/format-money";
-import { useLives } from "../../lives/hooks/use-lives";
-import { LiveStatusBadge } from "../../lives/components/live-status-badge";
+import { useStores } from "../../lives/hooks/use-lives";
+import { StoreStatusBadge } from "../../lives/components/live-status-badge";
 import { useDeleteProduct, useProducts } from "../hooks/use-products";
 import type { Product } from "../api/products-api";
 
 export function ProductsPage() {
-  const { liveId = "" } = useParams();
+  const { storeId = "" } = useParams();
   const location = useLocation();
-  const lives = useLives();
-  const products = useProducts(liveId);
+  const lives = useStores();
+  const products = useProducts(storeId);
   const deleteProduct = useDeleteProduct();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [deletedNotice, setDeletedNotice] = useState(false);
 
   if (lives.isPending || products.isPending) {
-    return <LoadingState label="Loading products for this Live…" />;
+    return <LoadingState label="Loading products for this Store…" />;
   }
 
   if (lives.isError && !lives.data) {
-    return <RequestFailure label="We couldn't load this Live." onRetry={() => void lives.refetch()} />;
+    return <RequestFailure label="We couldn't load this Store." onRetry={() => void lives.refetch()} />;
   }
-  if (!lives.data) return <LoadingState label="Loading products for this Live…" />;
+  if (!lives.data) return <LoadingState label="Loading products for this Store…" />;
 
-  const live = lives.data.find((item) => item.id === liveId);
+  const live = lives.data.find((item) => item.id === storeId);
   if (!live) {
     return (
       <EmptyState
-        action={<Link className="font-semibold text-brand-700 underline" to="/lives">All Lives</Link>}
-        description="This Live may have been removed or may not belong to your account."
-        title="Live not found"
+        action={<Link className="font-semibold text-brand-700 underline" to="/stores">All Stores</Link>}
+        description="This Store may have been removed or may not belong to your account."
+        title="Store not found"
       />
     );
   }
@@ -46,15 +46,15 @@ export function ProductsPage() {
   if (products.isError && !products.data) {
     return (
       <>
-        <WorkspaceBackLink liveId={liveId} />
-        <PageHeader eyebrow="Live workspace" title="Products" description={`Products for ${live.name}.`} />
-        <RequestFailure label="We couldn't load this Live's products." onRetry={() => void products.refetch()} />
+        <WorkspaceBackLink storeId={storeId} />
+        <PageHeader eyebrow="Store workspace" title="Products" description={`Products for ${live.name}.`} />
+        <RequestFailure label="We couldn't load this Store's products." onRetry={() => void products.refetch()} />
       </>
     );
   }
-  if (!products.data) return <LoadingState label="Loading products for this Live…" />;
+  if (!products.data) return <LoadingState label="Loading products for this Store…" />;
 
-  const liveProducts = products.data.filter((product) => product.liveId === liveId);
+  const liveProducts = products.data.filter((product) => product.storeId === storeId);
 
   const notice = location.state && typeof location.state === "object"
     ? location.state as { productNotice?: unknown }
@@ -67,15 +67,15 @@ export function ProductsPage() {
         ? "Product deleted."
         : null;
   const deleteError = deleteProduct.error instanceof ApiError && deleteProduct.error.code === "PRODUCT_IN_USE"
-    ? "This product has order history and can't be deleted. It is still in this Live."
+    ? "This product has order history and can't be deleted. It is still in this Store."
     : deleteProduct.error instanceof ApiError && deleteProduct.error.status === 404
       ? "This product is no longer available. Refresh the list and try again."
-      : "We couldn't delete this product. It is still in this Live; please try again.";
+      : "We couldn't delete this product. It is still in this Store; please try again.";
 
   function confirmDelete() {
     if (!selectedProduct) return;
     deleteProduct.mutate(
-      { liveId, productId: selectedProduct.id },
+      { storeId, productId: selectedProduct.id },
       {
         onSuccess: () => {
           setSelectedProduct(null);
@@ -87,16 +87,16 @@ export function ProductsPage() {
 
   return (
     <>
-      <WorkspaceBackLink liveId={liveId} />
+      <WorkspaceBackLink storeId={storeId} />
       <PageHeader
-        action={<Link className={buttonClassName()} to={`/lives/${liveId}/products/new`}>Add product</Link>}
+        action={<Link className={buttonClassName()} to={`/stores/${storeId}/products/new`}>Add product</Link>}
         description={`Products available for ${live.name}.`}
-        eyebrow="Live workspace"
+        eyebrow="Store workspace"
         title="Products"
       />
       <div className="mb-5 flex items-center gap-2 text-sm text-ink-muted">
-        <span>Live status</span>
-        <LiveStatusBadge status={live.status} />
+        <span>Store status</span>
+        <StoreStatusBadge status={live.status} />
         <span className="font-semibold text-ink">{live.name}</span>
       </div>
 
@@ -108,9 +108,9 @@ export function ProductsPage() {
           <Notice
             action={
               <div className="flex flex-wrap gap-2">
-                <Link className={buttonClassName("secondary", "sm")} to={`/lives/${liveId}`}>Live workspace</Link>
+                <Link className={buttonClassName("secondary", "sm")} to={`/stores/${storeId}`}>Store workspace</Link>
                 <Link className={buttonClassName("ghost", "sm")} to="/">Dashboard</Link>
-                {live.status === "ACTIVE" && <a className={buttonClassName("ghost", "sm")} href={`/live/${live.slug}`} rel="noopener noreferrer" target="_blank">Open storefront</a>}
+                {live.status === "PUBLISHED" && <a className={buttonClassName("ghost", "sm")} href={`/live/${live.slug}`} rel="noopener noreferrer" target="_blank">Open storefront</a>}
               </div>
             }
             title={noticeMessage}
@@ -122,8 +122,8 @@ export function ProductsPage() {
 
       {liveProducts.length === 0 ? (
         <EmptyState
-          action={<Link className={buttonClassName()} to={`/lives/${liveId}/products/new`}>Add your first product</Link>}
-          description="Add the items you plan to sell in this Live."
+          action={<Link className={buttonClassName()} to={`/stores/${storeId}/products/new`}>Add your first product</Link>}
+          description="Add the items you plan to sell in this Store."
           title="No products yet"
         />
       ) : (
@@ -149,7 +149,7 @@ export function ProductsPage() {
                       </p>
                       <ProductOptions options={product.options} />
                       <div className="mt-auto flex flex-wrap gap-2 pt-3">
-                      <Link to={`/lives/${liveId}/products/${encodeURIComponent(product.id)}/edit`}>
+                      <Link to={`/stores/${storeId}/products/${encodeURIComponent(product.id)}/edit`}>
                         <Button size="sm" variant="secondary">Edit</Button>
                       </Link>
                       <Button
@@ -176,7 +176,7 @@ export function ProductsPage() {
       <ConfirmationDialog
         cancelLabel="Keep product"
         confirmLabel="Delete product"
-        description={`“${selectedProduct?.name ?? "This product"}” will be removed from this Live if it has no order history.`}
+        description={`“${selectedProduct?.name ?? "This product"}” will be removed from this Store if it has no order history.`}
         isPending={deleteProduct.isPending}
         onCancel={() => setSelectedProduct(null)}
         onConfirm={confirmDelete}
@@ -189,10 +189,10 @@ export function ProductsPage() {
   );
 }
 
-function WorkspaceBackLink({ liveId }: { liveId: string }) {
+function WorkspaceBackLink({ storeId }: { storeId: string }) {
   return (
-    <Link className="mb-5 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900" to={`/lives/${liveId}`}>
-      ← Live workspace
+    <Link className="mb-5 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900" to={`/stores/${storeId}`}>
+      ← Store workspace
     </Link>
   );
 }
