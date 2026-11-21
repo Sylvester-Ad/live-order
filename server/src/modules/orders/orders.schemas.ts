@@ -49,6 +49,10 @@ export const orderResponseSchema = z.object({
   ),
 });
 
+export const storeOrderResponseSchema = orderResponseSchema
+  .omit({ liveId: true })
+  .extend({ storeId: z.string() });
+
 export type OrderResponse = z.infer<typeof orderResponseSchema>;
 
 export const updateOrderSchema = z

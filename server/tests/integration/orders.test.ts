@@ -84,7 +84,7 @@ describe("Orders API", () => {
     capId = capResponse.body.data.id;
 
     expect(
-      await prisma.live.findFirst({
+      await prisma.store.findFirst({
         where: { id: liveId, creatorId: creator.id },
       }),
     ).not.toBeNull();

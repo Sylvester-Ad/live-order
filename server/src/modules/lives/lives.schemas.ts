@@ -24,6 +24,8 @@ export const createLiveSchema = z.object({
   tiktokLiveUrl: tiktokLiveUrlSchema.nullable().optional(),
 });
 
+export const createStoreSchema = createLiveSchema;
+
 export type CreateLiveInput = z.infer<typeof createLiveSchema>;
 
 export const liveResponseSchema = z.object({
@@ -36,10 +38,30 @@ export const liveResponseSchema = z.object({
   updatedAt: z.coerce.date(),
 });
 
+export const storeResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  status: z.enum(["DRAFT", "PUBLISHED", "UNPUBLISHED"]),
+  tiktokLiveUrl: tiktokLiveUrlSchema.nullable(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+export const storesResponseSchema = z.array(storeResponseSchema);
+
 export type LiveResponse = z.infer<typeof liveResponseSchema>;
 
 export const updateLiveSchema = z.object({
   status: z.enum(["ACTIVE", "ENDED"]).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  tiktokLiveUrl: tiktokLiveUrlSchema.nullable().optional(),
+}).refine(
+  (data) => Object.keys(data).length > 0,
+  { message: "At least one field must be provided" },
+);
+
+export const updateStoreDetailsSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   tiktokLiveUrl: tiktokLiveUrlSchema.nullable().optional(),
 }).refine(

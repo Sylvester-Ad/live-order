@@ -5,7 +5,12 @@ import {
   liveResponseSchema,
   updateLiveSchema,
 } from "./lives.schemas.js";
-import { createLive, updateLive, listLives } from "./lives.service.js";
+import {
+  createStore,
+  listStores,
+  toLegacyLiveStatus,
+  updateLegacyLive,
+} from "./lives.service.js";
 import { AppError } from "../../shared/errors/app-error.js";
 
 const router = Router();
@@ -14,10 +19,10 @@ router.post("/", requireCreator, async (req, res, next) => {
   try {
     const input = createLiveSchema.parse(req.body);
 
-    const live = await createLive(req.creator!.id, input);
+    const live = await createStore(req.creator!.id, input);
 
     return res.status(201).json({
-      data: liveResponseSchema.parse(live),
+      data: liveResponseSchema.parse({ ...live, status: toLegacyLiveStatus(live.status) }),
     });
   } catch (error) {
     next(error);
@@ -37,10 +42,10 @@ router.patch("/:liveId", requireCreator, async (req, res, next) => {
     }
 
     const input = updateLiveSchema.parse(req.body);
-    const live = await updateLive(req.creator!.id, liveId, input);
+    const live = await updateLegacyLive(req.creator!.id, liveId, input);
 
     return res.json({
-      data: liveResponseSchema.parse(live),
+      data: liveResponseSchema.parse({ ...live, status: toLegacyLiveStatus(live.status) }),
     });
   } catch (error) {
     next(error);
@@ -49,10 +54,11 @@ router.patch("/:liveId", requireCreator, async (req, res, next) => {
 
 router.get("/", requireCreator, async (req, res, next) => {
   try {
-    const lives = await listLives(req.creator!.id);
+    const lives = await listStores(req.creator!.id);
 
     return res.json({
-      data: lives.map((live) => liveResponseSchema.parse(live)),
+      data: lives.map((live) =>
+        liveResponseSchema.parse({ ...live, status: toLegacyLiveStatus(live.status) })),
     });
   } catch (error) {
     next(error);

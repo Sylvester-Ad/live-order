@@ -244,7 +244,7 @@ registry.registerPath({
   path: "/api/v1/creator/mobile-money",
   tags: ["Creator settings"],
   summary: "Get Mobile Money settings",
-  description: "Returns the authenticated creator's default Mobile Money account, or null when none has been saved. This endpoint does not expose another creator's settings.",
+  description: "Returns the authenticated creator's legacy Mobile Money account, or null when none has been saved. This is a temporary compatibility endpoint; Store-managed settings are returned by the Store-scoped endpoint.",
   security: [{ CreatorSession: [] }],
   responses: {
     200: jsonResponse("Creator Mobile Money settings returned.", schemaRef("MobileMoneySettingsSuccessResponse")),
@@ -257,7 +257,7 @@ registry.registerPath({
   path: "/api/v1/creator/mobile-money",
   tags: ["Creator settings"],
   summary: "Save Mobile Money settings",
-  description: "Creates or updates the authenticated creator's default Mobile Money account, shared across all their Lives. Number input is normalized to Ghana's local ten-digit format. Disabling Mobile Money preserves the saved account but excludes it from new order payment instructions.",
+  description: "Creates or updates the authenticated creator's legacy Mobile Money account. Store settings still marked LEGACY_INHERITED are refreshed, and unconfigured Stores receive inherited settings; Store-managed settings are never overwritten. This is a temporary compatibility endpoint. Number input is normalized to Ghana's local ten-digit format.",
   security: [{ CreatorSession: [] }],
   request: {
     body: {
@@ -269,6 +269,43 @@ registry.registerPath({
     200: jsonResponse("Creator Mobile Money settings saved.", schemaRef("MobileMoneySettingsUpdateSuccessResponse")),
     400: errorResponse("Invalid provider, Ghanaian mobile number, account name, or enabled status."),
     401: errorResponse("Authentication is required or the session has expired."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/stores/{storeId}/mobile-money",
+  tags: ["Stores", "Store settings"],
+  summary: "Get Store Mobile Money settings",
+  description: "Returns Mobile Money settings for the Store owned by the authenticated Creator, or null when none are configured. Store-specific settings are independent of other Stores owned by the Creator.",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ storeId: z.string() }) },
+  responses: {
+    200: jsonResponse("Store Mobile Money settings returned.", schemaRef("MobileMoneySettingsSuccessResponse")),
+    401: errorResponse("Authentication is required or the session has expired."),
+    404: errorResponse("Store not found."),
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/v1/stores/{storeId}/mobile-money",
+  tags: ["Stores", "Store settings"],
+  summary: "Save Store Mobile Money settings",
+  description: "Creates or updates settings for the Store owned by the authenticated Creator and marks them Store-managed. Disabling Mobile Money preserves the saved details but excludes them from new order payment instructions.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ storeId: z.string() }),
+    body: {
+      required: true,
+      content: jsonContent(schemaRef("UpdateMobileMoneySettingsRequest")),
+    },
+  },
+  responses: {
+    200: jsonResponse("Store Mobile Money settings saved.", schemaRef("MobileMoneySettingsUpdateSuccessResponse")),
+    400: errorResponse("Invalid provider, Ghanaian mobile number, account name, or enabled status."),
+    401: errorResponse("Authentication is required or the session has expired."),
+    404: errorResponse("Store not found."),
   },
 });
 
@@ -645,6 +682,87 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/stores/{storeId}",
+  tags: ["Stores"],
+  summary: "Get a Store",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ storeId: z.string() }) },
+  responses: {
+    200: jsonResponse("Store returned successfully.", schemaRef("StoreSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Store not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/stores/{storeId}",
+  tags: ["Stores"],
+  summary: "Update Store details",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ storeId: z.string() }),
+    body: { required: true, content: jsonContent(schemaRef("UpdateStoreDetailsRequest")) },
+  },
+  responses: {
+    200: jsonResponse("Store updated successfully.", schemaRef("StoreSuccessResponse")),
+    400: errorResponse("Invalid Store ID or request body."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Store not found or not owned by the creator."),
+  },
+});
+
+for (const [action, summary] of [["publish", "Publish a Store"], ["unpublish", "Unpublish a Store"]] as const) {
+  registry.registerPath({
+    method: "post",
+    path: `/api/v1/stores/{storeId}/${action}`,
+    tags: ["Stores"],
+    summary,
+    security: [{ CreatorSession: [] }],
+    request: { params: z.object({ storeId: z.string() }) },
+    responses: {
+      200: jsonResponse("Store publication status updated.", schemaRef("StoreSuccessResponse")),
+      401: errorResponse("Authentication is required."),
+      404: errorResponse("Store not found or not owned by the creator."),
+      409: errorResponse("Invalid Store publication transition."),
+    },
+  });
+}
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/stores/{storeId}/orders/{orderId}",
+  tags: ["Orders"],
+  summary: "Get a Store order",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ storeId: z.string(), orderId: z.string() }) },
+  responses: {
+    200: jsonResponse("Order returned successfully.", schemaRef("StoreOrderSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Order not found in this Store."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/stores/{storeId}/orders/{orderId}",
+  tags: ["Orders"],
+  summary: "Mark a Store order as paid",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ storeId: z.string(), orderId: z.string() }),
+    body: { required: true, content: jsonContent(schemaRef("UpdateOrderRequest")) },
+  },
+  responses: {
+    200: jsonResponse("Order payment status updated.", schemaRef("StoreOrderSuccessResponse")),
+    400: errorResponse("Invalid order ID or request body."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Order not found in this Store."),
+  },
+});
+
 const generator = new OpenApiGeneratorV31(registry.definitions);
 
 export const openApiDocument = generator.generateDocument({
@@ -662,3 +780,58 @@ export const openApiDocument = generator.generateDocument({
     },
   ],
 });
+
+const storeSchemaNames: Record<string, string> = {
+  CreateLiveRequest: "CreateStoreRequest",
+  LiveSuccessResponse: "StoreSuccessResponse",
+  LivesSuccessResponse: "StoresSuccessResponse",
+  ProductSuccessResponse: "StoreProductSuccessResponse",
+  ProductsSuccessResponse: "StoreProductsSuccessResponse",
+  ProductImageUploadSuccessResponse: "StoreProductImageUploadSuccessResponse",
+  OrderSuccessResponse: "StoreOrderSuccessResponse",
+  OrdersSuccessResponse: "StoreOrdersSuccessResponse",
+  PublicLiveSuccessResponse: "PublicStoreSuccessResponse",
+};
+
+function storeOpenApiValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(storeOpenApiValue);
+  if (typeof value === "string") {
+    return value
+      .replace(/#\/components\/schemas\/([A-Za-z]+)/g, (reference, name: string) =>
+        `#/components/schemas/${storeSchemaNames[name] ?? name}`)
+      .replaceAll("Lives", "Stores")
+      .replaceAll("Live", "Store")
+      .replaceAll("liveId", "storeId");
+  }
+  if (typeof value !== "object" || value === null) return value;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    result[key === "liveId" ? "storeId" : key] = storeOpenApiValue(item);
+  }
+  return result;
+}
+
+openApiDocument.paths ??= {};
+for (const [livePath, storePath] of Object.entries({
+  "/api/v1/lives": "/api/v1/stores",
+  "/api/v1/lives/{liveId}/products": "/api/v1/stores/{storeId}/products",
+  "/api/v1/lives/{liveId}/products/{productId}": "/api/v1/stores/{storeId}/products/{productId}",
+  "/api/v1/lives/{liveId}/products/{productId}/image": "/api/v1/stores/{storeId}/products/{productId}/image",
+  "/api/v1/lives/{liveId}/products/{productId}/images": "/api/v1/stores/{storeId}/products/{productId}/images",
+  "/api/v1/lives/{liveId}/product-image-uploads/{idempotencyKey}": "/api/v1/stores/{storeId}/product-image-uploads/{idempotencyKey}",
+  "/api/v1/lives/{liveId}/products/{productId}/image-uploads/pending": "/api/v1/stores/{storeId}/products/{productId}/image-uploads/pending",
+  "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}/primary": "/api/v1/stores/{storeId}/products/{productId}/images/{imageId}/primary",
+  "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}": "/api/v1/stores/{storeId}/products/{productId}/images/{imageId}",
+  "/api/v1/lives/{liveId}/orders": "/api/v1/stores/{storeId}/orders",
+  "/api/v1/lives/{liveId}/orders/export": "/api/v1/stores/{storeId}/orders/export",
+  "/api/v1/public/lives/{slug}": "/api/v1/public/stores/{slug}",
+})) {
+  const legacyPathItem = openApiDocument.paths[livePath];
+  if (!legacyPathItem) continue;
+  const cloned = storeOpenApiValue(legacyPathItem) as typeof legacyPathItem;
+  if (livePath === "/api/v1/lives") {
+    delete cloned.patch;
+  }
+  openApiDocument.paths[storePath] = cloned;
+}

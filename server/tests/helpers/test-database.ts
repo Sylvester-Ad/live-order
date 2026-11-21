@@ -16,9 +16,10 @@ export async function resetTestDatabase() {
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
   await prisma.productImageUploadRequest.deleteMany();
+  await prisma.storeMobileMoneySettings.deleteMany();
   await prisma.creatorMobileMoneySettings.deleteMany();
   await prisma.product.deleteMany();
-  await prisma.live.deleteMany();
+  await prisma.store.deleteMany();
   await prisma.creatorSession.deleteMany();
   await prisma.creator.deleteMany();
 }

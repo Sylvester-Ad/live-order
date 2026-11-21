@@ -33,12 +33,12 @@ describe("Order listing API", () => {
     expect(setCookie).toBeDefined();
     cookie = setCookie[0].split(";")[0];
 
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: {
         creatorId: creator.id,
         name: "Test Live",
         slug: `test-live-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
 
@@ -46,7 +46,7 @@ describe("Order listing API", () => {
 
     const product = await prisma.product.create({
       data: {
-        liveId,
+        storeId: liveId,
         name: "Test Shirt",
         price: 10000,
       },
@@ -62,7 +62,7 @@ describe("Order listing API", () => {
   it("returns orders with their items, newest first", async () => {
     const olderOrder = await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         reference: "ORD-0000000000000001",
         customerName: "Older Customer",
         customerPhone: "0241234567",
@@ -82,7 +82,7 @@ describe("Order listing API", () => {
 
     const newerOrder = await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         reference: "ORD-0000000000000002",
         customerName: "Newer Customer",
         customerPhone: "0247654321",
@@ -150,12 +150,12 @@ describe("Order listing API", () => {
       },
     });
 
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",
         slug: `private-live-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
 

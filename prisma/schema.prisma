@@ -7,10 +7,10 @@ datasource db {
   provider = "sqlite"
 }
 
-enum LiveStatus {
+enum StoreStatus {
   DRAFT
-  ACTIVE
-  ENDED
+  PUBLISHED   @map("ACTIVE")
+  UNPUBLISHED @map("ENDED")
 }
 
 enum PaymentStatus {
@@ -22,6 +22,11 @@ enum MobileMoneyProvider {
   MTN_MOBILE_MONEY
   TELECEL_CASH
   AT_MONEY
+}
+
+enum StoreMobileMoneySettingsOrigin {
+  LEGACY_INHERITED
+  STORE_MANAGED
 }
 
 enum ImageStorageProvider {
@@ -47,7 +52,7 @@ model Creator {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  lives                   Live[]
+  stores                  Store[]
   productCreationRequests ProductCreationRequest[]
   mobileMoneySettings     CreatorMobileMoneySettings?
 }
@@ -65,27 +70,29 @@ model CreatorSession {
   @@index([expiresAt])
 }
 
-model Live {
-  id            String     @id @default(uuid())
+model Store {
+  id            String      @id @default(uuid())
   creatorId     String
   name          String
-  slug          String     @unique
-  status        LiveStatus @default(DRAFT)
+  slug          String      @unique
+  status        StoreStatus @default(DRAFT)
   tiktokLiveUrl String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
-  creator                 Creator                  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator                 Creator                   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   products                Product[]
   orders                  Order[]
   productCreationRequests ProductCreationRequest[]
+  mobileMoneySettings     StoreMobileMoneySettings?
 
   @@index([creatorId])
+  @@map("Live")
 }
 
 model Product {
   id             String   @id @default(uuid())
-  liveId         String
+  storeId        String   @map("liveId")
   name           String
   price          Int
   options        Json?
@@ -95,28 +102,28 @@ model Product {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  live                   Live                    @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  store                  Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   orderItems             OrderItem[]
   images                 ProductImage[]
   productCreationRequest ProductCreationRequest?
 
-  @@index([liveId])
+  @@index([storeId], map: "Product_liveId_idx")
 }
 
 model ProductCreationRequest {
   id                 String   @id @default(uuid())
   idempotencyKey     String   @unique
   creatorId          String
-  liveId             String
+  storeId            String   @map("liveId")
   requestFingerprint String
   productId          String?  @unique
   createdAt          DateTime @default(now())
 
   creator Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  live    Live     @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  store   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
-  @@index([creatorId, liveId])
+  @@index([creatorId, storeId], map: "ProductCreationRequest_creatorId_liveId_idx")
 }
 
 model ProductImage {
@@ -143,7 +150,7 @@ model ProductImageUploadRequest {
   id              String                   @id @default(uuid())
   idempotencyKey  String                   @unique
   creatorId       String
-  liveId          String
+  storeId         String                   @map("liveId")
   productId       String
   fileFingerprint String
   status          ProductImageUploadStatus @default(PENDING)
@@ -170,9 +177,23 @@ model CreatorMobileMoneySettings {
   creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 }
 
+model StoreMobileMoneySettings {
+  id                String                         @id @default(uuid())
+  storeId           String                         @unique
+  provider          MobileMoneyProvider
+  mobileMoneyNumber String
+  accountName       String
+  enabled           Boolean                        @default(true)
+  origin            StoreMobileMoneySettingsOrigin @default(STORE_MANAGED)
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
 model Order {
   id                     String               @id @default(uuid())
-  liveId                 String
+  storeId                String               @map("liveId")
   reference              String?              @unique
   idempotencyKey         String?              @unique
   requestFingerprint     String?
@@ -187,10 +208,10 @@ model Order {
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 
-  live  Live        @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  store Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   items OrderItem[]
 
-  @@index([liveId])
+  @@index([storeId], map: "Order_liveId_idx")
   @@index([paymentStatus])
 }
 

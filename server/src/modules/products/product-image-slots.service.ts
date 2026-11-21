@@ -14,7 +14,7 @@ const maximumBusyRetries = 1;
 export type ReserveProductImageSlotInput = {
   idempotencyKey: string;
   creatorId: string;
-  liveId: string;
+  storeId: string;
   productId: string;
   fileFingerprint: string;
   provider: ImageStorageProvider;
@@ -74,7 +74,7 @@ function assertSameRequest(
 ): ProductImageSlotReservation {
   if (
     existing.creatorId !== input.creatorId ||
-    existing.liveId !== input.liveId ||
+    existing.storeId !== input.storeId ||
     existing.productId !== input.productId ||
     existing.fileFingerprint !== input.fileFingerprint
   ) {
@@ -101,8 +101,8 @@ async function reserveInTransaction(input: ReserveProductImageSlotInput) {
     const changed = await tx.product.updateMany({
       where: {
         id: input.productId,
-        liveId: input.liveId,
-        live: { creatorId: input.creatorId },
+        storeId: input.storeId,
+        store: { creatorId: input.creatorId },
         isDeleting: false,
         imageSlotsUsed: { lt: maximumImageSlots },
       },
@@ -118,8 +118,8 @@ async function reserveInTransaction(input: ReserveProductImageSlotInput) {
       const product = await tx.product.findFirst({
         where: {
           id: input.productId,
-          liveId: input.liveId,
-          live: { creatorId: input.creatorId },
+          storeId: input.storeId,
+          store: { creatorId: input.creatorId },
         },
         select: { imageSlotsUsed: true, isDeleting: true },
       });

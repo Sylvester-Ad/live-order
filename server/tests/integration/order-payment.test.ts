@@ -33,18 +33,18 @@ describe("Order payment API", () => {
     expect(setCookie).toBeDefined();
     cookie = setCookie[0].split(";")[0];
 
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: {
         creatorId: creator.id,
         name: "Test Live",
         slug: `test-live-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
 
     const product = await prisma.product.create({
       data: {
-        liveId: live.id,
+        storeId: live.id,
         name: "Test Shirt",
         price: 10000,
         stockQuantity: 3,
@@ -53,7 +53,7 @@ describe("Order payment API", () => {
 
     const order = await prisma.order.create({
       data: {
-        liveId: live.id,
+        storeId: live.id,
         reference: "ORD-0000000000000003",
         customerName: "Test Customer",
         customerPhone: "0241234567",
@@ -79,18 +79,18 @@ describe("Order payment API", () => {
       },
     });
 
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Another Live",
         slug: `another-live-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
 
     const otherProduct = await prisma.product.create({
       data: {
-        liveId: otherLive.id,
+        storeId: otherLive.id,
         name: "Other Product",
         price: 5000,
       },
@@ -98,7 +98,7 @@ describe("Order payment API", () => {
 
     const otherOrder = await prisma.order.create({
       data: {
-        liveId: otherLive.id,
+        storeId: otherLive.id,
         reference: "ORD-0000000000000004",
         customerName: "Another Customer",
         customerPhone: "0247654321",

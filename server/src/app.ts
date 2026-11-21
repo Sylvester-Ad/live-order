@@ -8,6 +8,9 @@ import livesRouter from "./modules/lives/lives.routes.js";
 import productsRouter from "./modules/products/products.routes.js";
 import ordersRouter from "./modules/orders/orders.routes.js";
 import publicLivesRouter from "./modules/lives/public.routes.js";
+import storesRouter from "./modules/stores/stores.routes.js";
+import storeOrdersRouter from "./modules/orders/store-orders.routes.js";
+import { createStoreScopedAliasRouter } from "./modules/stores/store-api-adapter.js";
 import swaggerUi from "swagger-ui-express";
 import morgan from "morgan";
 import { errorHandler } from "./shared/errors/error-handler.js";
@@ -88,6 +91,10 @@ app.get("/api/health/ready", async (_req, res) => {
 });
 
 app.use("/api/v1/creator", creatorsRouter);
+app.use("/api/v1/stores", storesRouter);
+app.use("/api/v1", createStoreScopedAliasRouter(productsRouter, "/products"));
+app.use("/api/v1", createStoreScopedAliasRouter(ordersRouter, "/orders"));
+app.use("/api/v1/stores/:storeId/orders", storeOrdersRouter);
 app.use("/api/v1/lives", livesRouter);
 app.use("/api/v1", productsRouter);
 app.use("/api/v1", ordersRouter);

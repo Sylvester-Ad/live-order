@@ -53,7 +53,7 @@ describe("Products API", () => {
     liveId = liveResponse.body.data.id;
 
     expect(
-      await prisma.live.findFirst({
+      await prisma.store.findFirst({
         where: { id: liveId, creatorId: creator.id },
       }),
     ).not.toBeNull();
@@ -179,7 +179,7 @@ describe("Products API", () => {
         accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`),
       },
     });
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",
@@ -302,7 +302,7 @@ describe("Products API", () => {
       where: { id: response.body.data.id },
     });
 
-    expect(product?.liveId).toBe(liveId);
+    expect(product?.storeId).toBe(liveId);
   });
 
   it("persists a nonzero stock quantity through product creation and listing", async () => {
@@ -444,7 +444,7 @@ describe("Products API", () => {
         accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`),
       },
     });
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",
@@ -507,7 +507,7 @@ describe("Products API", () => {
         accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`),
       },
     });
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",
@@ -515,7 +515,7 @@ describe("Products API", () => {
       },
     });
     const product = await prisma.product.create({
-      data: { liveId: otherLive.id, name: "Private product", price: 5000 },
+      data: { storeId: otherLive.id, name: "Private product", price: 5000 },
     });
 
     const response = await request(app)
@@ -548,7 +548,7 @@ describe("Products API", () => {
       .send({ name: "Classic T-shirt", price: 10000 });
     await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         customerName: "Ama Mensah",
         customerPhone: "0241234567",
         deliveryLocation: "Accra",
@@ -582,7 +582,7 @@ describe("Products API", () => {
         accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`),
       },
     });
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",
@@ -590,7 +590,7 @@ describe("Products API", () => {
       },
     });
     const product = await prisma.product.create({
-      data: { liveId: otherLive.id, name: "Private product", price: 5000 },
+      data: { storeId: otherLive.id, name: "Private product", price: 5000 },
     });
 
     const response = await request(app)

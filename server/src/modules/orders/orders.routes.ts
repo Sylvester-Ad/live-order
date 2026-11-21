@@ -38,7 +38,7 @@ router.post("/lives/:liveId/orders", async (req, res, next) => {
     const order = await createOrder(liveId, input, idempotencyKey);
 
     return res.status(201).json({
-      data: orderResponseSchema.parse(order),
+      data: orderResponseSchema.parse({ ...order, liveId: order.storeId }),
     });
   } catch (error) {
     next(error);
@@ -60,7 +60,7 @@ router.get("/lives/:liveId/orders", requireCreator, async (req, res, next) => {
     const orders = await listOrders(req.creator!.id, liveId);
 
     return res.json({
-      data: orders.map((order) => orderResponseSchema.parse(order)),
+      data: orders.map((order) => orderResponseSchema.parse({ ...order, liveId: order.storeId })),
     });
   } catch (error) {
     next(error);
@@ -86,6 +86,7 @@ router.patch("/orders/:orderId", requireCreator, async (req, res, next) => {
     return res.json({
       data: orderResponseSchema.parse({
         ...order,
+        liveId: order.storeId,
         paymentStatus: input.paymentStatus,
       }),
     });

@@ -40,7 +40,7 @@ describe("Creator Live listing API", () => {
   });
 
   it("returns only the authenticated creator's Lives", async () => {
-    await prisma.live.createMany({
+    await prisma.store.createMany({
       data: [
         {
           creatorId,
@@ -62,7 +62,7 @@ describe("Creator Live listing API", () => {
       },
     });
 
-    await prisma.live.create({
+    await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",

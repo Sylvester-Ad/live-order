@@ -50,10 +50,11 @@ function logImageCleanupFailure(operation: string, provider: string, storageId: 
   console.error("Product image cleanup failed", { operation, provider, storageId });
 }
 
-export function productWithImages<T extends { images: ProductImageRecord[] }>(product: T) {
-  const { images, ...fields } = product;
+export function productWithImages<T extends { storeId: string; images: ProductImageRecord[] }>(product: T) {
+  const { images, storeId, ...fields } = product;
   return {
     ...fields,
+    liveId: storeId,
     ...serializeProductImages(images),
   };
 }
@@ -83,9 +84,9 @@ export function identifyImageFormat(buffer: Buffer, declaredMimeType: string): S
   return mimeType;
 }
 
-async function ownedProduct(creatorId: string, liveId: string, productId: string) {
+async function ownedProduct(creatorId: string, storeId: string, productId: string) {
   const product = await prisma.product.findFirst({
-    where: { id: productId, liveId, live: { creatorId } },
+    where: { id: productId, storeId, store: { creatorId } },
     include: activeProductImagesInclude,
   });
 
@@ -95,13 +96,13 @@ async function ownedProduct(creatorId: string, liveId: string, productId: string
 
 export async function selectPrimaryProductImage(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
   imageId: string,
 ) {
   return prisma.$transaction(async (tx) => {
     const product = await tx.product.findFirst({
-      where: { id: productId, liveId, live: { creatorId } },
+      where: { id: productId, storeId, store: { creatorId } },
       select: { id: true, isDeleting: true },
     });
 
@@ -144,27 +145,27 @@ export async function selectPrimaryProductImage(
 
 export async function removeProductImage(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
   storage?: ImageStorage,
 ) {
-  const product = await ownedProduct(creatorId, liveId, productId);
+  const product = await ownedProduct(creatorId, storeId, productId);
   const image = product.images.find((candidate) => candidate.isPrimary);
 
   if (!image) return productWithImages(product);
 
-  return removeProductImageById(creatorId, liveId, productId, image.id, storage);
+  return removeProductImageById(creatorId, storeId, productId, image.id, storage);
 }
 
 export async function removeProductImageById(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
   imageId: string,
   storage?: ImageStorage,
 ) {
   const product = await prisma.product.findFirst({
-    where: { id: productId, liveId, live: { creatorId } },
+    where: { id: productId, storeId, store: { creatorId } },
     select: { id: true },
   });
   if (!product) throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
