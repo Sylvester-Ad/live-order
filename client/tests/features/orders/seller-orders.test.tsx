@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,11 +21,13 @@ function mockFetch({
   paymentFails = false,
   exportFails = false,
   alreadyPaid = false,
+  secondPage = false,
   orderItems = firstOrder.items,
 }: {
   paymentFails?: boolean;
   exportFails?: boolean;
   alreadyPaid?: boolean;
+  secondPage?: boolean;
   orderItems?: typeof firstOrder.items;
 } = {}) {
   const initialOrder = { ...firstOrder, items: orderItems };
@@ -34,12 +36,17 @@ function mockFetch({
     const url = String(input);
     if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
     if (url.endsWith("/api/v1/stores")) return json({ data: [live] });
-    if (url.endsWith("/api/v1/stores/live-1/products")) return json({ data: [] });
+    if (url.includes("/api/v1/stores/live-1/products?")) return json({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
     if (url.endsWith("/api/v1/stores/live-1/orders/export")) {
       if (exportFails) return json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed" } }, 500);
       return new Response('"Order Reference"\r\n"ORD-A1B2C3"\r\n', { headers: { "Content-Type": "text/csv; charset=utf-8" } });
     }
-    if (url.endsWith("/api/v1/stores/live-1/orders") && init?.method === "GET") return json({ data: orders });
+    if (url.includes("/api/v1/stores/live-1/orders?") && init?.method === "GET") {
+      const page = Number(new URL(url).searchParams.get("page"));
+      const result = secondPage && page === 2 ? [{ ...initialOrder, id: "order-2", reference: "ORD-SECOND" }] : orders;
+      return json({ data: result, pagination: { page, limit: 20, total: secondPage ? 21 : result.length, totalPages: secondPage ? 2 : Math.ceil(result.length / 20), hasNextPage: secondPage && page === 1, hasPreviousPage: page > 1 } });
+    }
+    if (url.endsWith("/api/v1/stores/live-1/orders/order-1") && init?.method === "GET") return json({ data: orders[0] });
     if (url.endsWith("/api/v1/stores/live-1/orders/order-1") && init?.method === "PATCH") {
       if (paymentFails) return json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed" } }, 500);
       orders = [{ ...firstOrder, paymentStatus: "PAID" }];
@@ -78,6 +85,63 @@ describe("seller order management", () => {
     expect(within(row).getByRole("link", { name: "View order" })).toHaveAttribute("href", "/stores/live-1/orders/order-1");
     expect(screen.getByRole("link", { name: "← Store management" })).toHaveAttribute("href", "/stores/live-1");
     expect(await screen.findAllByRole("img", { name: "Cotton shirt product image" })).not.toHaveLength(0);
+  });
+
+  it("moves between server pages and reports the total order count", async () => {
+    const fetchMock = mockFetch({ secondPage: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/stores/live-1/orders");
+
+    expect(await screen.findByText("21 orders total")).toBeInTheDocument();
+    expect(screen.getAllByText("Page 1 of 2")).toHaveLength(2);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("row", { name: /ORD-SECOND/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Page 2 of 2")).toHaveLength(2);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/orders?page=2&limit=20"))).toBe(true);
+  });
+
+  it("starts at page one when switching to another Store", async () => {
+    const secondStore = { ...live, id: "live-2", name: "Saturday market" };
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
+      if (url.endsWith("/api/v1/stores")) return json({ data: [live, secondStore] });
+      const storeId = url.includes("/api/v1/stores/live-2/") ? "live-2" : "live-1";
+      if (url.includes(`/api/v1/stores/${storeId}/orders?`)) {
+        const page = Number(new URL(url).searchParams.get("page"));
+        const data = storeId === "live-1" && page === 2
+          ? [{ ...firstOrder, id: "order-2", reference: "ORD-SECOND" }]
+          : [{ ...firstOrder, storeId }];
+        return json({
+          data,
+          pagination: {
+            page,
+            limit: 20,
+            total: storeId === "live-1" ? 21 : 1,
+            totalPages: storeId === "live-1" ? 2 : 1,
+            hasNextPage: storeId === "live-1" && page === 1,
+            hasPreviousPage: page > 1,
+          },
+        });
+      }
+      if (url.includes("/products?")) return json({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const router = createTestRouter(["/stores/live-1/orders"]);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppProviders><RouterProvider router={router} /></AppProviders>);
+
+    await screen.findByRole("row", { name: /ORD-A1B2C3/ });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("row", { name: /ORD-SECOND/ });
+    await act(async () => { await router.navigate("/stores/live-2/orders"); });
+
+    expect(await screen.findByRole("row", { name: /ORD-A1B2C3/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Page 1 of 1")).toHaveLength(2);
+    expect(requests.some((url) => url.includes("/api/v1/stores/live-2/orders?page=1&limit=20"))).toBe(true);
   });
 
   it("provides contextual Products and Orders navigation with active and mobile states", async () => {
@@ -152,7 +216,7 @@ describe("seller order management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
       if (url.endsWith("/api/v1/stores")) return json({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/orders")) return json({ data: [] });
+      if (url.includes("/api/v1/stores/live-1/orders?")) return json({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);

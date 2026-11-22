@@ -10,6 +10,10 @@ import {
 import { publicLiveQueryKey } from "../../public-live/hooks/use-public-live";
 
 export const productsQueryKey = (storeId: string) => ["stores", storeId, "products"] as const;
+export const productsPageQueryKey = (storeId: string, page: number, limit: number) =>
+  [...productsQueryKey(storeId), { page, limit }] as const;
+export const productDetailQueryKey = (storeId: string, productId: string) =>
+  [...productsQueryKey(storeId), "detail", productId] as const;
 export const productImageUploadsQueryKey = (storeId: string, productId: string) =>
   ["stores", storeId, "product-image-uploads", productId] as const;
 export const productImageUploadStatusQueryKey = (storeId: string, idempotencyKey: string) =>
@@ -17,13 +21,23 @@ export const productImageUploadStatusQueryKey = (storeId: string, idempotencyKey
 
 export function useProducts(
   storeId: string,
+  page: number,
+  limit: number,
   options: { enabled?: boolean; refetchOnMount?: boolean | "always" } = {},
 ) {
   return useQuery({
-    queryKey: productsQueryKey(storeId),
-    queryFn: ({ signal }) => productsApi.list(storeId, signal),
+    queryKey: productsPageQueryKey(storeId, page, limit),
+    queryFn: ({ signal }) => productsApi.list(storeId, page, limit, signal),
     ...options,
     enabled: Boolean(storeId) && (options.enabled ?? true),
+  });
+}
+
+export function useProduct(storeId: string, productId: string | undefined) {
+  return useQuery({
+    queryKey: productDetailQueryKey(storeId, productId ?? ""),
+    queryFn: ({ signal }) => productsApi.get(storeId, productId!, signal),
+    enabled: Boolean(storeId && productId),
   });
 }
 
@@ -53,11 +67,9 @@ async function updateProductAfterImageMutation(
   storeId: string,
 ) {
   const queryKey = productsQueryKey(storeId);
-  queryClient.setQueryData<Product[]>(queryKey, (products) =>
-    products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
-  );
+  queryClient.setQueryData<Product>(productDetailQueryKey(storeId, updatedProduct.id), updatedProduct);
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey, exact: true }),
+    queryClient.invalidateQueries({ queryKey }),
     queryClient.invalidateQueries({ queryKey: publicLiveQueryKey() }),
   ]);
 }
@@ -71,12 +83,9 @@ export function useCreateProduct() {
       input: CreateProductInput;
       idempotencyKey: string;
     }) => productsApi.create(storeId, input, idempotencyKey),
-    onSuccess: async (createdProduct, { storeId }) => {
+    onSuccess: async (_createdProduct, { storeId }) => {
       const queryKey = productsQueryKey(storeId);
-      queryClient.setQueryData<Product[]>(queryKey, (products) =>
-        products ? [...products, createdProduct] : [createdProduct],
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+      await queryClient.invalidateQueries({ queryKey });
     },
   });
 }
@@ -96,10 +105,8 @@ export function useUpdateProduct() {
     }) => productsApi.update(storeId, productId, input),
     onSuccess: async (updatedProduct, { storeId }) => {
       const queryKey = productsQueryKey(storeId);
-      queryClient.setQueryData<Product[]>(queryKey, (products) =>
-        products?.map((product) => product.id === updatedProduct.id ? updatedProduct : product),
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+      queryClient.setQueryData<Product>(productDetailQueryKey(storeId, updatedProduct.id), updatedProduct);
+      await queryClient.invalidateQueries({ queryKey });
     },
   });
 }
@@ -112,10 +119,10 @@ export function useDeleteProduct() {
       productsApi.delete(storeId, productId),
     onSuccess: async (_result, { storeId, productId }) => {
       const queryKey = productsQueryKey(storeId);
-      queryClient.setQueryData<Product[]>(queryKey, (products) =>
-        products?.filter((product) => product.id !== productId),
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.removeQueries({ queryKey: productDetailQueryKey(storeId, productId), exact: true }),
+      ]);
     },
   });
 }

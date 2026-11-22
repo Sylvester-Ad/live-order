@@ -9,6 +9,8 @@ import { CustomerLayout } from "../components/layout/customer-layout";
 import { SellerLayout } from "../components/layout/seller-layout";
 import { RequireCreator } from "../features/auth/components/require-creator";
 import { LoginPage } from "../features/auth/pages/login-page";
+import { ClaimAccountPage, ForgotPasswordPage, RegisterPage, ResetPasswordPage, VerifyEmailPage } from "../features/auth/pages/account-pages";
+import { LandingPage } from "../features/marketing/pages/landing-page";
 import { DashboardPage } from "../features/dashboard/pages/dashboard-page";
 import { CreateStorePage } from "../features/lives/pages/create-live-page";
 import { StoresPage } from "../features/lives/pages/lives-page";
@@ -22,10 +24,16 @@ import { NotFoundPage } from "./NotFoundPage";
 import { LegacyLiveRouteRedirect, LegacyPaymentRouteRedirect } from "../features/lives/pages/legacy-seller-redirects";
 
 export const routeConfig: RouteObject[] = [
+  { path: "/", element: <LandingPage /> },
   {
     path: "/login",
     element: <LoginPage />,
   },
+  { path: "/register", element: <RegisterPage /> },
+  { path: "/claim-account", element: <ClaimAccountPage /> },
+  { path: "/verify-email", element: <VerifyEmailPage /> },
+  { path: "/forgot-password", element: <ForgotPasswordPage /> },
+  { path: "/reset-password", element: <ResetPasswordPage /> },
   {
     path: "/live/:slug",
     element: <CustomerLayout />,
@@ -37,7 +45,7 @@ export const routeConfig: RouteObject[] = [
       {
         element: <SellerLayout />,
         children: [
-          { index: true, element: <DashboardPage /> },
+          { path: "dashboard", element: <DashboardPage /> },
           { path: "stores", element: <StoresPage /> },
           { path: "stores/new", element: <CreateStorePage /> },
           { path: "stores/:storeId", element: <StoreWorkspacePage /> },

@@ -17,9 +17,33 @@ aws secretsmanager get-secret-value \
     if (.CLOUDINARY_CLOUD_NAME | type) == "string" and (.CLOUDINARY_CLOUD_NAME | length) > 0
        and (.CLOUDINARY_API_KEY | type) == "string" and (.CLOUDINARY_API_KEY | length) > 0
        and (.CLOUDINARY_API_SECRET | type) == "string" and (.CLOUDINARY_API_SECRET | length) > 0
+       and ((.SMTP_HOST // "") | type) == "string"
+       and ((.SMTP_PORT // "587") | type) == "string"
+       and ((.SMTP_USERNAME // "") | type) == "string"
+       and ((.SMTP_PASSWORD // "") | type) == "string"
+       and ((.SMTP_SECURE // "false") | type) == "string"
+       and ((.SMTP_REQUIRE_TLS // "true") | type) == "string"
+       and ((.SMTP_FROM // "") | type) == "string"
+       and ((.PUBLIC_APP_URL // "") | type) == "string"
+       and (((.SMTP_USERNAME // "") | length) == 0) == (((.SMTP_PASSWORD // "") | length) == 0)
     then
-      "CLOUDINARY_CLOUD_NAME=\"\(.CLOUDINARY_CLOUD_NAME | dotenv)\"\nCLOUDINARY_API_KEY=\"\(.CLOUDINARY_API_KEY | dotenv)\"\nCLOUDINARY_API_SECRET=\"\(.CLOUDINARY_API_SECRET | dotenv)\""
-    else error("Runtime secret must contain non-empty Cloudinary credential strings") end
+      {
+        CLOUDINARY_CLOUD_NAME,
+        CLOUDINARY_API_KEY,
+        CLOUDINARY_API_SECRET,
+        SMTP_HOST: (.SMTP_HOST // ""),
+        SMTP_PORT: (.SMTP_PORT // "587"),
+        SMTP_USERNAME: (.SMTP_USERNAME // ""),
+        SMTP_PASSWORD: (.SMTP_PASSWORD // ""),
+        SMTP_SECURE: (.SMTP_SECURE // "false"),
+        SMTP_REQUIRE_TLS: (.SMTP_REQUIRE_TLS // "true"),
+        SMTP_FROM: (.SMTP_FROM // ""),
+        PUBLIC_APP_URL: (.PUBLIC_APP_URL // "")
+      }
+      | to_entries
+      | map(.key + "=\"" + (.value | tostring | dotenv) + "\"")
+      | join("\n")
+    else error("Runtime secret must contain valid Cloudinary strings and optional paired SMTP credentials") end
   ' >> "$temporary_file"
 chown ec2-user:ec2-user "$temporary_file"
 chmod 0600 "$temporary_file"

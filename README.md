@@ -60,6 +60,17 @@ The command resolves `.env` from the repository root even when invoked through t
 
 After a production build, `node dist/server/src/scripts/create-creator.js "Creator Name"` from `/app/server` runs the compiled provisioning command.
 
+## Seller account email
+
+New sellers register with email and password. Existing sellers use **Claim your existing account** with their current access code; the code remains valid until the verification link is redeemed. Registration, claiming, and password recovery require SMTP delivery. Configure these server-only variables in the runtime environment:
+
+* `SMTP_HOST`, `SMTP_PORT`, and `SMTP_FROM` identify the SMTP server and sender.
+* `SMTP_USERNAME` and `SMTP_PASSWORD` are optional together when the SMTP server does not require authentication.
+* `SMTP_SECURE=true` enables implicit TLS (normally port 465); `SMTP_REQUIRE_TLS=true` requires STARTTLS (normally port 587).
+* `PUBLIC_APP_URL` is the public frontend origin used to construct verification and password-reset links. Production requires HTTPS.
+
+Missing or invalid SMTP configuration fails account email operations with a service-unavailable response. Do not put SMTP credentials in frontend variables, source control, or container build arguments. Automated tests use an in-memory mail capture instead of SMTP.
+
 ## Health checks and logs
 
 * `GET /api/health` is liveness: it reports that the HTTP process responds and does not require a database query.

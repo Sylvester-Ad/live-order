@@ -1,5 +1,6 @@
 import { prisma } from "../../src/database/prisma.js";
 import { getDatabaseConfiguration } from "../../src/config/database.js";
+import { resetAuthRateLimitsForTests } from "../../src/modules/creators/auth-rate-limit.js";
 
 const testDatabasePath = process.env.LIVEORDER_TEST_DATABASE_PATH?.trim() ?? "./data/test.db";
 if (getDatabaseConfiguration().path !== getDatabaseConfiguration({
@@ -13,8 +14,11 @@ if (getDatabaseConfiguration().path !== getDatabaseConfiguration({
 }
 
 export async function resetTestDatabase() {
+  resetAuthRateLimitsForTests();
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
+  await prisma.creatorPasswordResetToken.deleteMany();
+  await prisma.creatorAuthToken.deleteMany();
   await prisma.productImageUploadRequest.deleteMany();
   await prisma.storeMobileMoneySettings.deleteMany();
   await prisma.creatorMobileMoneySettings.deleteMany();

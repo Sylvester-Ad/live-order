@@ -1,14 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { sellerOrdersApi, type SellerOrder } from "../api/seller-orders-api";
+import { sellerOrdersApi } from "../api/seller-orders-api";
 
 export const sellerOrdersQueryKey = (storeId: string) => ["stores", storeId, "orders"] as const;
+export const sellerOrdersPageQueryKey = (storeId: string, page: number, limit: number) =>
+  [...sellerOrdersQueryKey(storeId), { page, limit }] as const;
 
-export function useSellerOrders(storeId: string) {
+export function useSellerOrders(storeId: string, page: number, limit: number, enabled = true) {
   return useQuery({
-    queryKey: sellerOrdersQueryKey(storeId),
-    queryFn: ({ signal }) => sellerOrdersApi.list(storeId, signal),
-    enabled: Boolean(storeId),
+    queryKey: sellerOrdersPageQueryKey(storeId, page, limit),
+    queryFn: ({ signal }) => sellerOrdersApi.list(storeId, page, limit, signal),
+    enabled: Boolean(storeId) && enabled,
+  });
+}
+
+export function useSellerOrder(storeId: string, orderId: string | undefined) {
+  return useQuery({
+    queryKey: [...sellerOrdersQueryKey(storeId), "detail", orderId],
+    queryFn: ({ signal }) => sellerOrdersApi.get(storeId, orderId!, signal),
+    enabled: Boolean(storeId && orderId),
   });
 }
 
@@ -18,11 +28,8 @@ export function useMarkOrderPaid(storeId: string) {
 
   return useMutation({
     mutationFn: (orderId: string) => sellerOrdersApi.markPaid(storeId, orderId, { paymentStatus: "PAID" }),
-    onSuccess: async (updatedOrder) => {
-      queryClient.setQueryData<SellerOrder[]>(queryKey, (orders) =>
-        orders?.map((order) => order.id === updatedOrder.id ? updatedOrder : order),
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey });
     },
   });
 }

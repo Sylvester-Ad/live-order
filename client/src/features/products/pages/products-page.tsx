@@ -16,9 +16,15 @@ import type { Product } from "../api/products-api";
 
 export function ProductsPage() {
   const { storeId = "" } = useParams();
+  return <ProductsPageForStore key={storeId} storeId={storeId} />;
+}
+
+function ProductsPageForStore({ storeId }: { storeId: string }) {
   const location = useLocation();
+  const pageSize = 20;
+  const [page, setPage] = useState(1);
   const lives = useStores();
-  const products = useProducts(storeId);
+  const products = useProducts(storeId, page, pageSize);
   const deleteProduct = useDeleteProduct();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [deletedNotice, setDeletedNotice] = useState(false);
@@ -54,7 +60,8 @@ export function ProductsPage() {
   }
   if (!products.data) return <LoadingState label="Loading products for this Store…" />;
 
-  const liveProducts = products.data.filter((product) => product.storeId === storeId);
+  const productPage = products.data;
+  const liveProducts = productPage.data.filter((product) => product.storeId === storeId);
 
   const notice = location.state && typeof location.state === "object"
     ? location.state as { productNotice?: unknown }
@@ -102,6 +109,10 @@ export function ProductsPage() {
 
       {(lives.isFetching || products.isFetching) && <p aria-live="polite" className="mb-4 text-sm text-ink-muted">Refreshing product information…</p>}
       {(lives.isError || products.isError) && <div className="mb-5"><Notice title="The latest information could not be refreshed. Showing the last loaded data." /></div>}
+      <div aria-live="polite" className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-ink-muted">
+        <span>{productPage.pagination.total} {productPage.pagination.total === 1 ? "product" : "products"} total</span>
+        <span>Page {page} of {Math.max(productPage.pagination.totalPages, 1)}</span>
+      </div>
 
       {noticeMessage && (
         <div className="mb-5">
@@ -109,7 +120,7 @@ export function ProductsPage() {
             action={
               <div className="flex flex-wrap gap-2">
                 <Link className={buttonClassName("secondary", "sm")} to={`/stores/${storeId}`}>Store workspace</Link>
-                <Link className={buttonClassName("ghost", "sm")} to="/">Dashboard</Link>
+                <Link className={buttonClassName("ghost", "sm")} to="/dashboard">Dashboard</Link>
                 {live.status === "PUBLISHED" && <a className={buttonClassName("ghost", "sm")} href={`/live/${live.slug}`} rel="noopener noreferrer" target="_blank">Open storefront</a>}
               </div>
             }
@@ -120,12 +131,14 @@ export function ProductsPage() {
       )}
       {deleteProduct.isError && selectedProduct === null && <div className="mb-5"><Notice title={deleteError} /></div>}
 
-      {liveProducts.length === 0 ? (
+      {productPage.pagination.total === 0 ? (
         <EmptyState
           action={<Link className={buttonClassName()} to={`/stores/${storeId}/products/new`}>Add your first product</Link>}
           description="Add the items you plan to sell in this Store."
           title="No products yet"
         />
+      ) : liveProducts.length === 0 ? (
+        <EmptyState title="No products on this page" description="Go to the previous page to see this Store's products." />
       ) : (
         <ul className="grid gap-4 md:grid-cols-2">
           {liveProducts.map((product) => {
@@ -172,6 +185,12 @@ export function ProductsPage() {
           })}
         </ul>
       )}
+
+      <nav aria-label="Product pages" className="mt-6 flex items-center justify-between gap-4 border-t border-border pt-4">
+        <Button disabled={page <= 1 || products.isFetching} onClick={() => setPage((currentPage) => currentPage - 1)} type="button" variant="secondary">Previous</Button>
+        <span className="text-sm text-ink-muted">Page {page} of {Math.max(productPage.pagination.totalPages, 1)}</span>
+        <Button disabled={!productPage.pagination.hasNextPage || products.isFetching} onClick={() => setPage((currentPage) => currentPage + 1)} type="button" variant="secondary">Next</Button>
+      </nav>
 
       <ConfirmationDialog
         cancelLabel="Keep product"

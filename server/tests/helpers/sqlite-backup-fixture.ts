@@ -7,11 +7,23 @@ export function createLiveOrderSqliteFixture(directory: string, filename = "sour
   database.pragma("foreign_keys = ON");
   database.exec(`
     CREATE TABLE "Creator" (
-      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "accessCodeHash" TEXT NOT NULL UNIQUE
+      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "accessCodeHash" TEXT NOT NULL UNIQUE,
+      "email" TEXT UNIQUE, "passwordHash" TEXT, "emailVerifiedAt" DATETIME
     );
     CREATE TABLE "CreatorSession" (
       "id" TEXT PRIMARY KEY, "creatorId" TEXT NOT NULL, "tokenHash" TEXT NOT NULL UNIQUE,
       "expiresAt" DATETIME NOT NULL,
+      FOREIGN KEY ("creatorId") REFERENCES "Creator"("id") ON DELETE CASCADE
+    );
+    CREATE TABLE "CreatorAuthToken" (
+      "id" TEXT PRIMARY KEY, "creatorId" TEXT NOT NULL UNIQUE, "pendingEmail" TEXT NOT NULL UNIQUE,
+      "pendingPasswordHash" TEXT NOT NULL, "pendingName" TEXT, "tokenHash" TEXT NOT NULL UNIQUE,
+      "purpose" TEXT NOT NULL, "expiresAt" DATETIME NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("creatorId") REFERENCES "Creator"("id") ON DELETE CASCADE
+    );
+    CREATE TABLE "CreatorPasswordResetToken" (
+      "id" TEXT PRIMARY KEY, "creatorId" TEXT NOT NULL, "tokenHash" TEXT NOT NULL UNIQUE,
+      "expiresAt" DATETIME NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("creatorId") REFERENCES "Creator"("id") ON DELETE CASCADE
     );
     CREATE TABLE "Live" (

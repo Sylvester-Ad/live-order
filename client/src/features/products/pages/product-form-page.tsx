@@ -38,7 +38,7 @@ import { getProductImageFileError } from "../lib/product-image-validation";
 import {
   useCreateProduct,
   usePendingProductImageUploads,
-  useProducts,
+  useProduct,
   useRemoveProductImage,
   useSelectPrimaryProductImage,
   useUpdateProduct,
@@ -51,7 +51,7 @@ export function ProductFormPage() {
   const isImageSetupStep = Boolean(useMatch("/stores/:storeId/products/:productId/images"));
   const creator = useCurrentCreator();
   const lives = useStores();
-  const products = useProducts(storeId, { enabled: Boolean(productId) });
+  const productQuery = useProduct(storeId, productId);
 
   if (creator.isPending) return <LoadingState label="Restoring your seller session…" />;
   if (creator.isError || !creator.data) return <RequestFailure label="We couldn't verify your seller session." onRetry={() => void creator.refetch()} />;
@@ -60,16 +60,16 @@ export function ProductFormPage() {
   }
   if (lives.isError && !lives.data) return <RequestFailure label="We couldn't load this Store." onRetry={() => void lives.refetch()} />;
   if (!lives.data) return <LoadingState label={productId ? "Loading product…" : "Loading this Store…"} />;
-  if (productId && products.isPending) return <LoadingState label="Loading product…" />;
-  if (productId && products.isError && !products.data) return <RequestFailure label="We couldn't load this Store's products." onRetry={() => void products.refetch()} />;
-  if (productId && !products.data) return <LoadingState label="Loading product…" />;
+  if (productId && productQuery.isPending) return <LoadingState label="Loading product…" />;
+  if (productId && productQuery.isError && !productQuery.data) return <RequestFailure label="We couldn't load this product." onRetry={() => void productQuery.refetch()} />;
+  if (productId && !productQuery.data) return <LoadingState label="Loading product…" />;
 
   const live = lives.data.find((item) => item.id === storeId);
   if (!live) {
     return <EmptyState action={<Link className="font-semibold text-brand-700 underline" to="/stores">All Stores</Link>} description="This Store may have been removed or may not belong to your account." title="Store not found" />;
   }
 
-  const product = productId ? products.data?.find((item) => item.id === productId && item.storeId === storeId) : undefined;
+  const product = productId && productQuery.data?.storeId === storeId ? productQuery.data : undefined;
   if (productId && !product) {
     return <EmptyState action={<Link className="font-semibold text-brand-700 underline" to={`/stores/${storeId}/products`}>Back to products</Link>} description="The product may have been removed or may not belong to this Store." title="Product not found" />;
   }
@@ -81,7 +81,7 @@ export function ProductFormPage() {
     liveName={live.name}
     product={product}
     imageSetupStep={isImageSetupStep}
-    refreshError={Boolean(lives.isError || products.isError)}
+    refreshError={Boolean(lives.isError || productQuery.isError)}
   />;
 }
 
@@ -235,7 +235,7 @@ function ProductEditor({ creatorId, storeId, liveName, product, imageSetupStep, 
       void productsApi.getImageUploadStatus(storeId, key).then(async (status) => {
         if (status.status !== "COMPLETED" || status.productId !== product.id) return;
         setImageRecoveryNotice("An upload completed before the page refreshed. The product gallery has been updated.");
-        await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
+        await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId) });
         try {
           clearProductImageUploadAttempt(creatorId, storeId, product.id, key);
           setStoredImageAttemptKeys((current) => current.filter((storedKey) => storedKey !== key));
@@ -357,7 +357,7 @@ function ProductEditor({ creatorId, storeId, liveName, product, imageSetupStep, 
               }
               if (status.status === "COMPLETED") {
                 setImageRecoveryNotice("This image had already finished uploading. The gallery has been refreshed without uploading it again.");
-                await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
+                await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId) });
                 try {
                   clearProductImageUploadAttempt(creatorId, storeId, product.id, idempotencyKey);
                   setStoredImageAttemptKeys((current) => current.filter((key) => key !== idempotencyKey));
@@ -434,7 +434,7 @@ function ProductEditor({ creatorId, storeId, liveName, product, imageSetupStep, 
             item.id === uploadId ? { ...item, status: "succeeded" } : item,
           ));
           setImageRecoveryNotice("This image had already finished uploading. The gallery has been refreshed without uploading it again.");
-          await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
+          await queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId) });
           try {
             clearProductImageUploadAttempt(creatorId, storeId, product.id, upload.idempotencyKey);
             setStoredImageAttemptKeys((current) => current.filter((key) => key !== upload.idempotencyKey));
@@ -450,7 +450,7 @@ function ProductEditor({ creatorId, storeId, liveName, product, imageSetupStep, 
       }
       if (error instanceof ApiError && error.code === "PRODUCT_IMAGE_LIMIT_REACHED") {
         setImageSelectionMessage("The server reports that this product has reached the three-image limit. The gallery will refresh.");
-        void queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId), exact: true });
+        void queryClient.invalidateQueries({ queryKey: productsQueryKey(storeId) });
       }
       setImageUploads((current) => current.map((item) =>
         item.id === uploadId ? { ...item, status: "failed", errorMessage: imageUploadErrorMessage(error) } : item,

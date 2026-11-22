@@ -199,6 +199,94 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/api/v1/creator/register",
+  tags: ["Authentication"],
+  summary: "Register a seller account",
+  description: "Creates a pending Creator identity and sends an email verification link. Duplicate addresses receive the same generic response.",
+  request: { body: { required: true, content: jsonContent(schemaRef("SellerRegistrationRequest")) } },
+  responses: {
+    202: jsonResponse("If the details can be used, an email with next steps will be sent.", schemaRef("AuthActionResponse")),
+    400: errorResponse("Invalid registration input."),
+    429: errorResponse("Too many attempts."),
+    503: errorResponse("Email delivery is unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/claim",
+  tags: ["Authentication"],
+  summary: "Claim an existing seller account",
+  description: "Verifies an existing access code and stages email/password credentials against the same Creator. The access code remains valid until verification succeeds.",
+  request: { body: { required: true, content: jsonContent(schemaRef("SellerClaimRequest")) } },
+  responses: {
+    202: jsonResponse("If the details can be used, an email with next steps will be sent.", schemaRef("AuthActionResponse")),
+    400: errorResponse("Invalid claim input."),
+    429: errorResponse("Too many attempts."),
+    503: errorResponse("Email delivery is unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/verify-email",
+  tags: ["Authentication"],
+  summary: "Verify seller email",
+  description: "Consumes a single-use email verification token, activates the account, retires the prior access code, and sets an HTTP-only session cookie.",
+  request: { body: { required: true, content: jsonContent(schemaRef("EmailVerificationRequest")) } },
+  responses: {
+    200: jsonResponse("Email verified and seller signed in.", schemaRef("CreatorSuccessResponse")),
+    400: errorResponse("Verification link is invalid or expired."),
+    429: errorResponse("Too many attempts."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/password/login",
+  tags: ["Authentication"],
+  summary: "Sign in with email and password",
+  description: "Authenticates a verified seller and sets the existing HTTP-only session cookie. Errors do not reveal whether an email exists.",
+  request: { body: { required: true, content: jsonContent(schemaRef("PasswordLoginRequest")) } },
+  responses: {
+    200: jsonResponse("Seller authenticated successfully.", schemaRef("CreatorSuccessResponse")),
+    400: errorResponse("Invalid login input."),
+    401: errorResponse("Email or password is incorrect."),
+    429: errorResponse("Too many attempts."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/password/forgot",
+  tags: ["Authentication"],
+  summary: "Request a password reset",
+  description: "Sends a single-use password reset link when the account exists. The response is generic to avoid account enumeration.",
+  request: { body: { required: true, content: jsonContent(schemaRef("EmailRequest")) } },
+  responses: {
+    202: jsonResponse("If the details can be used, an email with next steps will be sent.", schemaRef("AuthActionResponse")),
+    400: errorResponse("Invalid email input."),
+    429: errorResponse("Too many attempts."),
+    503: errorResponse("Email delivery is unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/password/reset",
+  tags: ["Authentication"],
+  summary: "Reset a seller password",
+  description: "Consumes an expiring single-use reset token and revokes every active session for the seller.",
+  request: { body: { required: true, content: jsonContent(schemaRef("PasswordResetRequest")) } },
+  responses: {
+    204: { description: "Password updated and sessions revoked." },
+    400: errorResponse("Invalid input or expired reset link."),
+    429: errorResponse("Too many attempts."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/v1/creator/access",
   tags: ["Authentication"],
   summary: "Creator login",
@@ -431,7 +519,7 @@ registry.registerPath({
   tags: ["Products"],
   summary: "List products for a Live",
   description:
-    "Returns products associated with a Live owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.",
+    "Returns products associated with a Live owned by the authenticated creator, oldest first. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -439,15 +527,36 @@ registry.registerPath({
         description: "ID of the Live whose products should be returned.",
       }),
     }),
+    query: z.object({
+      page: z.coerce.number().int().min(1).optional().openapi({ description: "One-based page number. Defaults to 1." }),
+      limit: z.coerce.number().int().min(1).max(100).optional().openapi({ description: "Page size, up to 100. Defaults to 20." }),
+    }),
   },
   responses: {
     200: jsonResponse(
-      "Products returned successfully.",
-      schemaRef("ProductsSuccessResponse"),
+      "Products returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata.",
+      {
+        oneOf: [schemaRef("ProductsSuccessResponse"), schemaRef("PaginatedProductsSuccessResponse")],
+      },
     ),
     400: errorResponse("Invalid Live ID."),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Live not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/lives/{liveId}/products/{productId}",
+  tags: ["Products"],
+  summary: "Get a product",
+  description: "Returns a product and its active image gallery when it belongs to the selected Live and authenticated creator.",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ liveId: z.string(), productId: z.string() }) },
+  responses: {
+    200: jsonResponse("Product returned successfully.", schemaRef("ProductSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
   },
 });
 
@@ -587,7 +696,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "List orders",
   description:
-    "Returns orders associated with a Live owned by the authenticated creator.",
+    "Returns orders associated with a Live owned by the authenticated creator. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Results are newest first with a stable secondary order.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -595,11 +704,17 @@ registry.registerPath({
         description: "ID of the Live whose orders should be returned.",
       }),
     }),
+    query: z.object({
+      page: z.coerce.number().int().min(1).optional().openapi({ description: "One-based page number. Defaults to 1." }),
+      limit: z.coerce.number().int().min(1).max(100).optional().openapi({ description: "Page size, up to 100. Defaults to 20." }),
+    }),
   },
   responses: {
     200: jsonResponse(
-      "Orders returned successfully.",
-      schemaRef("OrdersSuccessResponse"),
+      "Orders returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata.",
+      {
+        oneOf: [schemaRef("OrdersSuccessResponse"), schemaRef("PaginatedOrdersSuccessResponse")],
+      },
     ),
     400: errorResponse("Invalid Live ID."),
     401: errorResponse("Authentication is required."),
@@ -790,6 +905,8 @@ const storeSchemaNames: Record<string, string> = {
   ProductImageUploadSuccessResponse: "StoreProductImageUploadSuccessResponse",
   OrderSuccessResponse: "StoreOrderSuccessResponse",
   OrdersSuccessResponse: "StoreOrdersSuccessResponse",
+  PaginatedProductsSuccessResponse: "PaginatedStoreProductsSuccessResponse",
+  PaginatedOrdersSuccessResponse: "PaginatedStoreOrdersSuccessResponse",
   PublicLiveSuccessResponse: "PublicStoreSuccessResponse",
 };
 

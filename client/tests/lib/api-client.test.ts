@@ -31,6 +31,31 @@ describe("central API client", () => {
     );
   });
 
+  it("preserves pagination metadata while unwrapping ordinary success envelopes", async () => {
+    const paginated = {
+      data: [{ id: "order-1" }],
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(paginated), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await expect(api.get<typeof paginated>("/v1/stores/store-1/orders")).resolves.toEqual(paginated);
+  });
+
   it("preserves backend validation errors", async () => {
     vi.stubGlobal(
       "fetch",

@@ -600,6 +600,406 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/creator/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a seller account
+         * @description Creates a pending Creator identity and sends an email verification link. Duplicate addresses receive the same generic response.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SellerRegistrationRequest"];
+                };
+            };
+            responses: {
+                /** @description If the details can be used, an email with next steps will be sent. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuthActionResponse"];
+                    };
+                };
+                /** @description Invalid registration input. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Too many attempts. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Email delivery is unavailable. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/creator/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim an existing seller account
+         * @description Verifies an existing access code and stages email/password credentials against the same Creator. The access code remains valid until verification succeeds.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SellerClaimRequest"];
+                };
+            };
+            responses: {
+                /** @description If the details can be used, an email with next steps will be sent. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuthActionResponse"];
+                    };
+                };
+                /** @description Invalid claim input. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Too many attempts. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Email delivery is unavailable. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/creator/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify seller email
+         * @description Consumes a single-use email verification token, activates the account, retires the prior access code, and sets an HTTP-only session cookie.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EmailVerificationRequest"];
+                };
+            };
+            responses: {
+                /** @description Email verified and seller signed in. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreatorSuccessResponse"];
+                    };
+                };
+                /** @description Verification link is invalid or expired. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Too many attempts. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/creator/password/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with email and password
+         * @description Authenticates a verified seller and sets the existing HTTP-only session cookie. Errors do not reveal whether an email exists.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasswordLoginRequest"];
+                };
+            };
+            responses: {
+                /** @description Seller authenticated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreatorSuccessResponse"];
+                    };
+                };
+                /** @description Invalid login input. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Email or password is incorrect. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Too many attempts. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/creator/password/forgot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a password reset
+         * @description Sends a single-use password reset link when the account exists. The response is generic to avoid account enumeration.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EmailRequest"];
+                };
+            };
+            responses: {
+                /** @description If the details can be used, an email with next steps will be sent. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuthActionResponse"];
+                    };
+                };
+                /** @description Invalid email input. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Too many attempts. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Email delivery is unavailable. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/creator/password/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a seller password
+         * @description Consumes an expiring single-use reset token and revokes every active session for the seller.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasswordResetRequest"];
+                };
+            };
+            responses: {
+                /** @description Password updated and sessions revoked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid input or expired reset link. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Too many attempts. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/creator/access": {
         parameters: {
             query?: never;
@@ -1198,11 +1598,16 @@ export interface paths {
         };
         /**
          * List products for a Live
-         * @description Returns products associated with a Live owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.
+         * @description Returns products associated with a Live owned by the authenticated creator, oldest first. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description One-based page number. Defaults to 1. */
+                    page?: number;
+                    /** @description Page size, up to 100. Defaults to 20. */
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     /** @description ID of the Live whose products should be returned. */
@@ -1212,13 +1617,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Products returned successfully. */
+                /** @description Products returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ProductsSuccessResponse"];
+                        "application/json": components["schemas"]["ProductsSuccessResponse"] | components["schemas"]["PaginatedProductsSuccessResponse"];
                     };
                 };
                 /** @description Invalid Live ID. */
@@ -1352,7 +1757,51 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get a product
+         * @description Returns a product and its active image gallery when it belongs to the selected Live and authenticated creator.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    liveId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Product returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
         /**
@@ -1487,11 +1936,16 @@ export interface paths {
         };
         /**
          * List orders
-         * @description Returns orders associated with a Live owned by the authenticated creator.
+         * @description Returns orders associated with a Live owned by the authenticated creator. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Results are newest first with a stable secondary order.
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description One-based page number. Defaults to 1. */
+                    page?: number;
+                    /** @description Page size, up to 100. Defaults to 20. */
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     /** @description ID of the Live whose orders should be returned. */
@@ -1501,13 +1955,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Orders returned successfully. */
+                /** @description Orders returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["OrdersSuccessResponse"];
+                        "application/json": components["schemas"]["OrdersSuccessResponse"] | components["schemas"]["PaginatedOrdersSuccessResponse"];
                     };
                 };
                 /** @description Invalid Live ID. */
@@ -2205,11 +2659,16 @@ export interface paths {
         };
         /**
          * List products for a Store
-         * @description Returns products associated with a Store owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.
+         * @description Returns products associated with a Store owned by the authenticated creator, oldest first. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description One-based page number. Defaults to 1. */
+                    page?: number;
+                    /** @description Page size, up to 100. Defaults to 20. */
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     /** @description ID of the Store whose products should be returned. */
@@ -2219,13 +2678,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Products returned successfully. */
+                /** @description Products returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["StoreProductsSuccessResponse"];
+                        "application/json": components["schemas"]["StoreProductsSuccessResponse"] | components["schemas"]["PaginatedStoreProductsSuccessResponse"];
                     };
                 };
                 /** @description Invalid Store ID. */
@@ -2359,7 +2818,51 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get a product
+         * @description Returns a product and its active image gallery when it belongs to the selected Store and authenticated creator.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    storeId: string;
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Product returned successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreProductSuccessResponse"];
+                    };
+                };
+                /** @description Authentication is required. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Product not found or not owned by the creator. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
         /**
@@ -3003,11 +3506,16 @@ export interface paths {
         };
         /**
          * List orders
-         * @description Returns orders associated with a Store owned by the authenticated creator.
+         * @description Returns orders associated with a Store owned by the authenticated creator. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Results are newest first with a stable secondary order.
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description One-based page number. Defaults to 1. */
+                    page?: number;
+                    /** @description Page size, up to 100. Defaults to 20. */
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     /** @description ID of the Store whose orders should be returned. */
@@ -3017,13 +3525,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Orders returned successfully. */
+                /** @description Orders returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["StoreOrdersSuccessResponse"];
+                        "application/json": components["schemas"]["StoreOrdersSuccessResponse"] | components["schemas"]["PaginatedStoreOrdersSuccessResponse"];
                     };
                 };
                 /** @description Invalid Store ID. */
@@ -3275,6 +3783,39 @@ export interface components {
         };
         CreatorAccessRequest: {
             accessCode: string;
+        };
+        SellerRegistrationRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        SellerClaimRequest: {
+            accessCode: string;
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        PasswordLoginRequest: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        EmailRequest: {
+            /** Format: email */
+            email: string;
+        };
+        EmailVerificationRequest: {
+            token: string;
+        };
+        PasswordResetRequest: {
+            token: string;
+            password: string;
+        };
+        AuthActionResponse: {
+            data: {
+                message: string;
+            };
         };
         CreatorResponse: {
             id: string;
@@ -3533,6 +4074,43 @@ export interface components {
                 updatedAt: string | null;
             }[];
         };
+        PaginatedProductsSuccessResponse: {
+            data: {
+                id: string;
+                liveId: string;
+                name: string;
+                price: number;
+                options?: unknown;
+                stockQuantity: number;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+            }[];
+            pagination: {
+                page: number;
+                limit: number;
+                total: number;
+                totalPages: number;
+                hasNextPage: boolean;
+                hasPreviousPage: boolean;
+            };
+        };
         StoreProductResponse: {
             id: string;
             name: string;
@@ -3617,6 +4195,43 @@ export interface components {
                 updatedAt: string | null;
                 storeId: string;
             }[];
+        };
+        PaginatedStoreProductsSuccessResponse: {
+            data: {
+                id: string;
+                name: string;
+                price: number;
+                options?: unknown;
+                stockQuantity: number;
+                images: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                    isPrimary: boolean;
+                }[];
+                image: {
+                    id: string;
+                    /** Format: uri */
+                    url: string;
+                    /** Format: date-time */
+                    createdAt: string | null;
+                } | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+                storeId: string;
+            }[];
+            pagination: {
+                page: number;
+                limit: number;
+                total: number;
+                totalPages: number;
+                hasNextPage: boolean;
+                hasPreviousPage: boolean;
+            };
         };
         StoreProductImageUploadSuccessResponse: {
             data: {
@@ -3834,6 +4449,43 @@ export interface components {
                 }[];
             }[];
         };
+        PaginatedOrdersSuccessResponse: {
+            data: {
+                id: string;
+                liveId: string;
+                reference: string;
+                customerName: string;
+                customerPhone: string;
+                deliveryLocation: string;
+                totalAmount: number;
+                /** @enum {string} */
+                paymentStatus: "PENDING" | "PAID";
+                /** @enum {string|null} */
+                mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+                mobileMoneyNumber: string | null;
+                mobileMoneyAccountName: string | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                items: {
+                    id: string;
+                    productId: string;
+                    productName: string;
+                    /** Format: uri */
+                    productImageUrl: string | null;
+                    unitPrice: number;
+                    quantity: number;
+                    selectedOptions?: unknown;
+                }[];
+            }[];
+            pagination: {
+                page: number;
+                limit: number;
+                total: number;
+                totalPages: number;
+                hasNextPage: boolean;
+                hasPreviousPage: boolean;
+            };
+        };
         StoreOrderResponse: {
             id: string;
             reference: string;
@@ -3918,6 +4570,43 @@ export interface components {
                 }[];
                 storeId: string;
             }[];
+        };
+        PaginatedStoreOrdersSuccessResponse: {
+            data: {
+                id: string;
+                reference: string;
+                customerName: string;
+                customerPhone: string;
+                deliveryLocation: string;
+                totalAmount: number;
+                /** @enum {string} */
+                paymentStatus: "PENDING" | "PAID";
+                /** @enum {string|null} */
+                mobileMoneyProvider: "MTN_MOBILE_MONEY" | "TELECEL_CASH" | "AT_MONEY" | null;
+                mobileMoneyNumber: string | null;
+                mobileMoneyAccountName: string | null;
+                /** Format: date-time */
+                createdAt: string | null;
+                items: {
+                    id: string;
+                    productId: string;
+                    productName: string;
+                    /** Format: uri */
+                    productImageUrl: string | null;
+                    unitPrice: number;
+                    quantity: number;
+                    selectedOptions?: unknown;
+                }[];
+                storeId: string;
+            }[];
+            pagination: {
+                page: number;
+                limit: number;
+                total: number;
+                totalPages: number;
+                hasNextPage: boolean;
+                hasPreviousPage: boolean;
+            };
         };
         UpdateOrderRequest: {
             /** @enum {string} */

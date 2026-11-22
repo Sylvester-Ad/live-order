@@ -108,6 +108,33 @@ describe("Order CSV export API", () => {
     expect(response.text).toContain('"Order Reference"');
   });
 
+  it("exports the complete history independently of listing page size", async () => {
+    for (let index = 0; index < 23; index += 1) {
+      await prisma.order.create({
+        data: {
+          storeId: liveId,
+          reference: `ORD-EXPORT-${String(index).padStart(3, "0")}`,
+          customerName: `Customer ${index}`,
+          customerPhone: "0241234567",
+          deliveryLocation: "Accra",
+          totalAmount: 12500,
+          items: {
+            create: { productId, productName: "Cotton Shirt", unitPrice: 12500, quantity: 1 },
+          },
+        },
+      });
+    }
+
+    const response = await request(app)
+      .get(`/api/v1/stores/${liveId}/orders/export`)
+      .set("Cookie", cookie)
+      .expect(200);
+
+    expect(response.text).toContain('"ORD-EXPORT-000"');
+    expect(response.text).toContain('"ORD-EXPORT-022"');
+    expect((response.text.match(/ORD-EXPORT-/g) ?? []).length).toBe(23);
+  });
+
   it("escapes commas, quotes, and line breaks in customer and product fields", async () => {
     await prisma.order.create({
       data: {

@@ -109,8 +109,15 @@ function productFetch(
         idempotencyKey, status: "PENDING" as const, canResume: true as const, createdAt: null,
       })) });
     }
-    if (url.endsWith("/api/v1/stores/live-1/products") && (!init?.method || init.method === "GET")) {
-      return response({ data: products });
+    if (url.includes("/api/v1/stores/live-1/products?") && (!init?.method || init.method === "GET")) {
+      const query = new URL(url).searchParams;
+      const page = Number(query.get("page") ?? "1");
+      const limit = Number(query.get("limit") ?? "20");
+      const totalPages = Math.ceil(products.length / limit);
+      return response({
+        data: products.slice((page - 1) * limit, page * limit),
+        pagination: { page, limit, total: products.length, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 && products.length > 0 },
+      });
     }
     if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
       if (init.body instanceof FormData) {
@@ -174,6 +181,11 @@ function productFetch(
       });
       products = products.map((item) => item.id === updated.id ? updated : item);
       return response({ data: { product: updated, image } }, 201);
+    }
+    const productDetailPath = url.match(/\/api\/v1\/stores\/live-1\/products\/([^/?]+)$/);
+    if (productDetailPath && (!init?.method || init.method === "GET")) {
+      const found = products.find((item) => item.id === decodeURIComponent(productDetailPath[1]));
+      return found ? response({ data: found }) : response({ error: { code: "PRODUCT_NOT_FOUND", message: "Missing" } }, 404);
     }
     if (url.endsWith("/api/v1/stores/live-1/products/product-1") && init?.method === "PATCH") {
       const body = JSON.parse(String(init.body)) as Partial<Product>;
@@ -283,10 +295,10 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products")) {
+      if (url.endsWith("/api/v1/stores/live-1/products/product-1")) {
         productRequests += 1;
         if (productRequests >= 2) currentProduct = product({ name: "Server refreshed name", price: 4000, stockQuantity: 20 });
-        return response({ data: [currentProduct] });
+        return response({ data: currentProduct });
       }
       throw new Error(`Unexpected request: ${url}`);
     });
@@ -313,8 +325,8 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live, otherStore] });
-      if (url.endsWith("/api/v1/stores/live-1/products")) return response({ data: [product()] });
-      if (url.endsWith("/api/v1/stores/live-2/products")) return response({ data: [otherProduct] });
+      if (url.endsWith("/api/v1/stores/live-1/products/product-1")) return response({ data: product() });
+      if (url.endsWith("/api/v1/stores/live-2/products/product-2")) return response({ data: otherProduct });
       throw new Error(`Unexpected request: ${url}`);
     });
     const queryClient = createTestQueryClient();
@@ -343,7 +355,60 @@ describe("seller product management", () => {
     expect(screen.getByText("8 in stock")).toBeInTheDocument();
     expect(screen.getByText("S · M")).toBeInTheDocument();
     expect(screen.getByText("No image")).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/stores/live-1/products"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/v1/stores/live-1/products?page=1&limit=20"))).toBe(true);
+  });
+
+  it("loads later product pages from the server and displays page totals", async () => {
+    const manyProducts = Array.from({ length: 21 }, (_, index) => product({
+      id: `product-${index + 1}`,
+      name: `Shirt ${index + 1}`,
+    }));
+    const fetchMock = productFetch(manyProducts);
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/stores/live-1/products");
+
+    expect(await screen.findByText("21 products total")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Shirt 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Shirt 21" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("heading", { name: "Shirt 21" })).toBeInTheDocument();
+    expect(screen.getAllByText("Page 2 of 2")).toHaveLength(2);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/products?page=2&limit=20"))).toBe(true);
+  });
+
+  it("starts at page one when switching the product list to another Store", async () => {
+    const manyProducts = Array.from({ length: 21 }, (_, index) => product({ id: `product-${index + 1}`, name: `Shirt ${index + 1}` }));
+    const secondStore = { ...live, id: "live-2", name: "Saturday market" };
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
+      if (url.endsWith("/api/v1/stores")) return response({ data: [live, secondStore] });
+      const storeId = url.includes("/api/v1/stores/live-2/") ? "live-2" : "live-1";
+      if (url.includes(`/api/v1/stores/${storeId}/products?`)) {
+        const page = Number(new URL(url).searchParams.get("page"));
+        const data = storeId === "live-1" && page === 2
+          ? manyProducts.slice(20)
+          : storeId === "live-1" ? manyProducts.slice(0, 20) : [product({ id: "product-other", storeId, name: "Canvas tote" })];
+        const total = storeId === "live-1" ? 21 : 1;
+        return response({ data, pagination: { page, limit: 20, total, totalPages: storeId === "live-1" ? 2 : 1, hasNextPage: storeId === "live-1" && page === 1, hasPreviousPage: page > 1 } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const router = createTestRouter(["/stores/live-1/products"]);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<QueryClientProvider client={createTestQueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Shirt 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByRole("heading", { name: "Shirt 21" })).toBeInTheDocument();
+    await act(async () => { await router.navigate("/stores/live-2/products"); });
+
+    expect(await screen.findByRole("heading", { name: "Canvas tote" })).toBeInTheDocument();
+    expect(screen.getAllByText("Page 1 of 1")).toHaveLength(2);
+    expect(requests.some((url) => url.includes("/api/v1/stores/live-2/products?page=1&limit=20"))).toBe(true);
   });
 
   it("shows a product's only gallery image on its card", async () => {
@@ -391,7 +456,7 @@ describe("seller product management", () => {
     vi.stubGlobal("fetch", productFetch([product({ storeId: "live-2" })]));
     renderPath("/stores/live-1/products");
 
-    expect(await screen.findByRole("heading", { name: "No products yet" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "No products on this page" })).toBeInTheDocument();
     expect(screen.queryByText("Classic T-shirt")).not.toBeInTheDocument();
   });
 
@@ -402,14 +467,14 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products")) return pendingProducts;
+      if (url.includes("/api/v1/stores/live-1/products?")) return pendingProducts;
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
     renderPath("/stores/live-1/products");
 
     expect(await screen.findByText("Loading products for this Store…")).toBeInTheDocument();
-    resolveProducts(response({ data: [] }));
+    resolveProducts(response({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } }));
     expect(await screen.findByRole("heading", { name: "No products yet" })).toBeInTheDocument();
   });
 
@@ -418,7 +483,7 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products")) {
+      if (url.includes("/api/v1/stores/live-1/products?")) {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Request failed" } }, 500);
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -474,8 +539,13 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products") && (!init?.method || init.method === "GET")) {
-        return response({ data: committedProduct ? [committedProduct] : [] });
+      if (url.endsWith("/api/v1/stores/live-1/products/product-after-lost-response")) {
+        return committedProduct ? response({ data: committedProduct }) : response({ error: { code: "PRODUCT_NOT_FOUND", message: "Missing" } }, 404);
+      }
+      if (/\/api\/v1\/stores\/live-1\/products\/[^/]+\/image-uploads\/pending$/.test(url)) return response({ data: [] });
+      if (url.includes("/api/v1/stores/live-1/products?") && (!init?.method || init.method === "GET")) {
+        const data = committedProduct ? [committedProduct] : [];
+        return response({ data, pagination: { page: 1, limit: 20, total: data.length, totalPages: data.length ? 1 : 0, hasNextPage: false, hasPreviousPage: false } });
       }
       if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         createAttempts += 1;
@@ -556,12 +626,17 @@ describe("seller product management", () => {
   it("explains a deleted creation result and starts a fresh attempt with a new key", async () => {
     const creationKeys: string[] = [];
     const creationBodies: string[] = [];
+    let replacementProduct: Product | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products") && (!init?.method || init.method === "GET")) {
-        return response({ data: [] });
+      if (url.endsWith("/api/v1/stores/live-1/products/new-product")) {
+        return replacementProduct ? response({ data: replacementProduct }) : response({ error: { code: "PRODUCT_NOT_FOUND", message: "Missing" } }, 404);
+      }
+      if (/\/api\/v1\/stores\/live-1\/products\/[^/]+\/image-uploads\/pending$/.test(url)) return response({ data: [] });
+      if (url.includes("/api/v1/stores/live-1/products?") && (!init?.method || init.method === "GET")) {
+        return response({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
       }
       if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         creationKeys.push(new Headers(init.headers).get("Idempotency-Key") ?? "");
@@ -576,7 +651,8 @@ describe("seller product management", () => {
         }
 
         const input = JSON.parse(String(init.body)) as { name: string; price: number; stockQuantity: number };
-        return response({ data: product({ id: "new-product", ...input, options: null }) }, 201);
+        replacementProduct = product({ id: "new-product", ...input, options: null });
+        return response({ data: replacementProduct }, 201);
       }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
@@ -739,7 +815,7 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "GET") return response({ data: [] });
+      if (url.endsWith("/api/v1/stores/live-1/products/product-1") && (!init?.method || init.method === "GET")) return response({ data: product() });
       if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "POST") {
         return response({ error: { code: "VALIDATION_ERROR", message: "Request validation failed" } }, 400);
       }
@@ -983,7 +1059,7 @@ describe("seller product management", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return response({ data: creator });
       if (url.endsWith("/api/v1/stores")) return response({ data: [live] });
-      if (url.endsWith("/api/v1/stores/live-1/products") && init?.method === "GET") return response({ data: [product()] });
+      if (url.endsWith("/api/v1/stores/live-1/products/product-1") && (!init?.method || init.method === "GET")) return response({ data: product() });
       if (url.endsWith("/api/v1/stores/live-1/products/product-1") && init?.method === "PATCH") {
         return response({ error: { code: "INTERNAL_SERVER_ERROR", message: "Request failed" } }, 500);
       }

@@ -9,7 +9,7 @@ import { StatusBadge } from "../../../components/ui/status-badge";
 import { buttonClassName } from "../../../components/ui/button-styles";
 import { formatPesewas } from "../../../lib/format-money";
 import { useStores } from "../../lives/hooks/use-lives";
-import { useExportOrdersCsv, useMarkOrderPaid, useSellerOrders } from "../hooks/use-seller-orders";
+import { useExportOrdersCsv, useMarkOrderPaid, useSellerOrder, useSellerOrders } from "../hooks/use-seller-orders";
 import { OrderDetails } from "../components/order-details";
 import { OrderProductThumbnail } from "../components/order-product-thumbnail";
 import { OrderPaymentAction } from "../components/order-payment-action";
@@ -26,8 +26,15 @@ function safeFilenamePart(value: string) {
 
 export function OrdersPage() {
   const { storeId = "", orderId } = useParams();
+  return <OrdersPageForStore key={storeId} storeId={storeId} orderId={orderId} />;
+}
+
+function OrdersPageForStore({ storeId, orderId }: { storeId: string; orderId?: string }) {
   const stores = useStores({ refetchOnMount: "always" });
-  const orders = useSellerOrders(storeId);
+  const pageSize = 20;
+  const [page, setPage] = useState(1);
+  const orders = useSellerOrders(storeId, page, pageSize, !orderId);
+  const orderDetail = useSellerOrder(storeId, orderId);
   const markPaid = useMarkOrderPaid(storeId);
   const exportOrders = useExportOrdersCsv();
   const [paidNotice, setPaidNotice] = useState(false);
@@ -40,10 +47,11 @@ export function OrdersPage() {
   if (!store) return <EmptyState description="This Store may have been removed or may not belong to your account." title="Store not found" action={<Link className={buttonClassName("secondary")} to="/stores">All Stores</Link>} />;
   const selectedStore = store;
 
-  if (orders.isPending) return <LoadingState label="Loading orders…" />;
-  if (orders.isError && !orders.data) return <RequestFailure label="We couldn't load orders for this Store." onRetry={() => void orders.refetch()} />;
-  const orderList = orders.data ?? [];
-  const selectedOrder = orderId ? orderList.find((order) => order.id === orderId) : undefined;
+  if (!orderId && orders.isPending) return <LoadingState label="Loading orders…" />;
+  if (!orderId && orders.isError && !orders.data) return <RequestFailure label="We couldn't load orders for this Store." onRetry={() => void orders.refetch()} />;
+  const orderPage = orders.data;
+  const orderList = orderPage?.data ?? [];
+  const selectedOrder = orderDetail.data;
 
   function download(blob: Blob) {
     const url = URL.createObjectURL(blob);
@@ -67,6 +75,8 @@ export function OrdersPage() {
   }
 
   if (orderId) {
+    if (orderDetail.isPending) return <LoadingState label="Loading order details…" />;
+    if (orderDetail.isError) return <RequestFailure label="We couldn't load this order for the selected Store." onRetry={() => void orderDetail.refetch()} />;
     if (!selectedOrder) {
       return <EmptyState title="Order not found" description="This order is not part of the selected Store, or it is no longer available." action={<Link className={buttonClassName("secondary")} to={`/stores/${storeId}/orders`}>Back to orders</Link>} />;
     }
@@ -88,7 +98,7 @@ export function OrdersPage() {
     <>
       <div className="mb-5 flex flex-wrap gap-3">
         <Link className={buttonClassName("ghost", "sm")} to={`/stores/${storeId}`}>← Store management</Link>
-        <Link className={buttonClassName("ghost", "sm")} to="/">Dashboard</Link>
+        <Link className={buttonClassName("ghost", "sm")} to="/dashboard">Dashboard</Link>
       </div>
       <PageHeader
         description={`Orders placed for ${selectedStore.name}. Payment is confirmed manually by you.`}
@@ -100,8 +110,13 @@ export function OrdersPage() {
       {orders.isError && <div className="mb-4"><RequestFailure label="Orders could not be refreshed. Showing the last confirmed information." onRetry={() => void orders.refetch()} /></div>}
       {paidNotice && <div className="mb-4"><Notice title="Order marked as paid." tone="success" /></div>}
 
+      <div aria-live="polite" className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-ink-muted">
+        <span>{orderPage?.pagination.total ?? 0} {orderPage?.pagination.total === 1 ? "order" : "orders"} total</span>
+        <span>Page {page} of {Math.max(orderPage?.pagination.totalPages ?? 0, 1)}</span>
+      </div>
+
       {orderList.length === 0 ? (
-        <EmptyState title="No orders yet" description="Customer orders for this Store will appear here." />
+        <EmptyState title={orderPage && orderPage.pagination.total > 0 ? "No orders on this page" : "No orders yet"} description={orderPage && orderPage.pagination.total > 0 ? "Go to the previous page to see this Store's orders." : "Customer orders for this Store will appear here."} />
       ) : (
         <>
           <div className="hidden overflow-hidden rounded-panel border border-border bg-white md:block">
@@ -152,6 +167,12 @@ export function OrdersPage() {
           ))}</ul>
         </>
       )}
+
+      <nav aria-label="Order pages" className="mt-6 flex items-center justify-between gap-4 border-t border-border pt-4">
+        <Button disabled={page <= 1 || orders.isFetching} onClick={() => setPage((currentPage) => currentPage - 1)} type="button" variant="secondary">Previous</Button>
+        <span className="text-sm text-ink-muted">Page {page} of {Math.max(orderPage?.pagination.totalPages ?? 0, 1)}</span>
+        <Button disabled={!orderPage?.pagination.hasNextPage || orders.isFetching} onClick={() => setPage((currentPage) => currentPage + 1)} type="button" variant="secondary">Next</Button>
+      </nav>
     </>
   );
 }

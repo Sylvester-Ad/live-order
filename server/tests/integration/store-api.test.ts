@@ -190,6 +190,7 @@ describe("Store-oriented API compatibility", () => {
 
     const listing = await request(app).get(`/api/v1/stores/${storeId}/orders`).set("Cookie", cookie).expect(200);
     expect(listing.body.data[0]).toMatchObject({ id: first.body.data.id, storeId });
+    expect(listing.body.pagination).toMatchObject({ page: 1, limit: 20, total: 1, totalPages: 1 });
     const detail = await request(app)
       .get(`/api/v1/stores/${storeId}/orders/${first.body.data.id}`)
       .set("Cookie", cookie)
@@ -210,6 +211,12 @@ describe("Store-oriented API compatibility", () => {
       .set("Cookie", cookie)
       .send({ paymentStatus: "PAID" })
       .expect(404);
+    const secondStoreOrders = await request(app)
+      .get(`/api/v1/stores/${secondStore.body.data.id}/orders`)
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(secondStoreOrders.body.data).toEqual([]);
+    expect(secondStoreOrders.body.pagination.total).toBe(0);
 
     const paid = await request(app)
       .patch(`/api/v1/stores/${storeId}/orders/${first.body.data.id}`)
@@ -221,6 +228,10 @@ describe("Store-oriented API compatibility", () => {
     const other = await createCreatorCookie("Order Access Outsider");
     await request(app)
       .get(`/api/v1/stores/${storeId}/orders/${first.body.data.id}`)
+      .set("Cookie", other.cookie)
+      .expect(404);
+    await request(app)
+      .get(`/api/v1/stores/${storeId}/orders`)
       .set("Cookie", other.cookie)
       .expect(404);
     await request(app)

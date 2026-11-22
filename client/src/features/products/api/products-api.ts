@@ -2,6 +2,7 @@ import type { components } from "../../../types/openapi.generated";
 import { api } from "../../../lib/api-client";
 
 export type Product = components["schemas"]["StoreProductResponse"];
+export type ProductsPage = components["schemas"]["PaginatedStoreProductsSuccessResponse"];
 export type CreateProductInput = components["schemas"]["CreateProductRequest"];
 export type UpdateProductInput = components["schemas"]["UpdateProductRequest"];
 export type ProductImageUploadResult = components["schemas"]["StoreProductImageUploadSuccessResponse"]["data"];
@@ -11,8 +12,12 @@ export type PendingProductImageUpload =
 export type ProductImage = Product["images"][number];
 
 export const productsApi = {
-  list(storeId: string, signal?: AbortSignal) {
-    return api.get<Product[]>(`/v1/stores/${encodeURIComponent(storeId)}/products`, { signal });
+  list(storeId: string, page: number, limit: number, signal?: AbortSignal) {
+    const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+    return api.get<ProductsPage>(`/v1/stores/${encodeURIComponent(storeId)}/products?${query}`, { signal });
+  },
+  get(storeId: string, productId: string, signal?: AbortSignal) {
+    return api.get<Product>(`/v1/stores/${encodeURIComponent(storeId)}/products/${encodeURIComponent(productId)}`, { signal });
   },
   create(storeId: string, input: CreateProductInput, idempotencyKey: string) {
     return api.post<Product>(

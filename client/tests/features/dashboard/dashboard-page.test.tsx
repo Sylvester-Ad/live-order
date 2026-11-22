@@ -11,7 +11,7 @@ function store(id: string, status: Store["status"]): Store {
   return { id, name: `Store ${id}`, slug: id, status, tiktokLiveUrl: null, createdAt: "2026-10-12T10:00:00.000Z", updatedAt: null };
 }
 function response(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }); }
-function renderDashboard() { return render(<AppProviders><RouterProvider router={createTestRouter(["/"])} /></AppProviders>); }
+function renderDashboard() { return render(<AppProviders><RouterProvider router={createTestRouter(["/dashboard"])} /></AppProviders>); }
 function authenticatedFetch(stores: Store[]) {
   return vi.fn(async (input: RequestInfo | URL) => {
     if (String(input).includes("/creator/me")) return response({ data: creator });

@@ -29,6 +29,11 @@ enum StoreMobileMoneySettingsOrigin {
   STORE_MANAGED
 }
 
+enum CreatorAuthTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 enum ImageStorageProvider {
   CLOUDINARY
 }
@@ -48,13 +53,47 @@ model Creator {
   id             String           @id @default(uuid())
   name           String
   accessCodeHash String           @unique
+  email          String?          @unique
+  passwordHash   String?
+  emailVerifiedAt DateTime?
   sessions       CreatorSession[]
+  authTokens     CreatorAuthToken[]
+  passwordResetTokens CreatorPasswordResetToken[]
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   stores                  Store[]
   productCreationRequests ProductCreationRequest[]
   mobileMoneySettings     CreatorMobileMoneySettings?
+}
+
+model CreatorAuthToken {
+  id                 String                 @id @default(uuid())
+  creatorId          String                 @unique
+  pendingEmail       String                 @unique
+  pendingPasswordHash String
+  pendingName        String?
+  tokenHash          String                 @unique
+  purpose            CreatorAuthTokenPurpose
+  expiresAt          DateTime
+  createdAt          DateTime               @default(now())
+
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model CreatorPasswordResetToken {
+  id        String   @id @default(uuid())
+  creatorId String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, expiresAt])
+  @@index([expiresAt])
 }
 
 model CreatorSession {

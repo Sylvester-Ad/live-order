@@ -5,6 +5,7 @@ import { AppError } from "../../shared/errors/app-error.js";
 import { createWithOrderReference } from "./order-reference.js";
 import type { CreateOrderInput } from "./orders.schemas.js";
 import { getImageStorage } from "../products/image-storage/index.js";
+import { createPaginationMetadata, type PaginationInput } from "../../shared/utils/pagination.js";
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -273,7 +274,7 @@ function validateOptionSelection(options: unknown, selection: Record<string, unk
   }
 }
 
-export async function listOrders(creatorId: string, storeId: string) {
+export async function listOrders(creatorId: string, storeId: string, pagination?: PaginationInput) {
   const store = await prisma.store.findFirst({
     where: {
       id: storeId,
@@ -288,17 +289,23 @@ export async function listOrders(creatorId: string, storeId: string) {
     throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
   }
 
-  return prisma.order.findMany({
-    where: {
-      storeId: store.id,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    include: {
-      items: true,
-    },
-  });
+  const where = { storeId: store.id };
+  const orderBy = [{ createdAt: "desc" as const }, { id: "desc" as const }];
+  if (!pagination) {
+    return prisma.order.findMany({ where, orderBy, include: { items: true } });
+  }
+
+  const [total, data] = await Promise.all([
+    prisma.order.count({ where }),
+    prisma.order.findMany({
+      where,
+      orderBy,
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+      include: { items: true },
+    }),
+  ]);
+  return { data, pagination: createPaginationMetadata(pagination.page, pagination.limit, total) };
 }
 
 export async function getOrder(creatorId: string, storeId: string, orderId: string) {

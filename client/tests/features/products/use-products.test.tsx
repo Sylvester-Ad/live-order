@@ -7,6 +7,7 @@ import type { Product } from "../../../src/features/products/api/products-api";
 import {
   productImageUploadStatusQueryKey,
   productImageUploadsQueryKey,
+  productDetailQueryKey,
   productsQueryKey,
   usePendingProductImageUploads,
   useProductImageUploadStatus,
@@ -87,7 +88,7 @@ describe("product image mutations", () => {
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
-    queryClient.setQueryData(productsQueryKey("live-1"), [originalProduct]);
+    queryClient.setQueryData(productDetailQueryKey("live-1", "product-1"), originalProduct);
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
@@ -103,10 +104,9 @@ describe("product image mutations", () => {
       });
     });
 
-    expect(queryClient.getQueryData(productsQueryKey("live-1"))).toEqual([updatedProduct]);
+    expect(queryClient.getQueryData(productDetailQueryKey("live-1", "product-1"))).toEqual(updatedProduct);
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: productsQueryKey("live-1"),
-      exact: true,
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["public-live"] });
     expect(invalidateQueries).toHaveBeenCalledWith({
@@ -189,7 +189,6 @@ describe("product image mutations", () => {
     )).toBe(true);
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: productsQueryKey("live-1"),
-      exact: true,
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["public-live"] });
     queryClient.clear();

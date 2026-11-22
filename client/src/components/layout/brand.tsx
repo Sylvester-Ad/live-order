@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-export function Brand({ inverse = false, link = true }: { inverse?: boolean; link?: boolean }) {
+export function Brand({ inverse = false, link = true, to = "/" }: { inverse?: boolean; link?: boolean; to?: string }) {
   const content = (
     <>
       <img alt="" aria-hidden="true" className="size-10 shrink-0" src="/liveorder-mark.svg" />
@@ -11,7 +11,7 @@ export function Brand({ inverse = false, link = true }: { inverse?: boolean; lin
   );
 
   return link ? (
-    <Link aria-label="LiveOrder home" className="inline-flex items-center gap-3" to="/">
+    <Link aria-label="LiveOrder home" className="inline-flex items-center gap-3" to={to}>
       {content}
     </Link>
   ) : (

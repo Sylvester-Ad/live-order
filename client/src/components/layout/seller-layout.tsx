@@ -9,7 +9,7 @@ import { Notice } from "../feedback/feedback";
 import { Brand } from "./brand";
 
 const primaryNavigation = [
-  { label: "Dashboard", to: "/", end: true },
+  { label: "Dashboard", to: "/dashboard", end: true },
   { label: "Stores", to: "/stores", end: false },
 ];
 
@@ -51,7 +51,7 @@ export function SellerLayout() {
     <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
       <aside className="hidden border-r border-border bg-surface lg:flex lg:flex-col">
         <div className="px-6 py-7">
-          <Brand />
+          <Brand to="/dashboard" />
         </div>
         <nav aria-label="Seller navigation" className="grid gap-1 px-3">
           {navigation.map((item) => (
@@ -98,7 +98,7 @@ export function SellerLayout() {
         <header className="border-b border-border bg-surface px-4 py-3 sm:px-7 lg:px-10">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
             <div className="lg:hidden">
-              <Brand />
+              <Brand to="/dashboard" />
             </div>
             {storeId && stores.data && (
               <label className="min-w-0 flex-1 sm:flex-none">

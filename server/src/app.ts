@@ -18,6 +18,9 @@ import { createCorsOptions } from "./config/cors.js";
 import { prisma } from "./database/prisma.js";
 
 const app = express();
+// Production runs behind the single Caddy reverse proxy; use its client IP
+// for authentication rate limits instead of grouping every seller together.
+app.set("trust proxy", 1);
 let docsRouterPromise: Promise<express.Router> | undefined;
 
 const requestLogger = process.env.NODE_ENV === "production"

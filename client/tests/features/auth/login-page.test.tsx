@@ -18,17 +18,17 @@ afterEach(() => {
 });
 
 describe("login page", () => {
-  it("keeps the login form working without the implementation-detail footer", async () => {
+  it("authenticates with email and password and keeps account claiming visible", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/creator/me")) {
         return response({ error: { code: "UNAUTHENTICATED", message: "Authentication required" } }, 401);
       }
-      if (url.includes("/creator/access") && init?.method === "POST") {
-        expect(JSON.parse(String(init.body))).toEqual({ accessCode: "seller-access-code" });
+      if (url.includes("/creator/password/login") && init?.method === "POST") {
+        expect(JSON.parse(String(init.body))).toEqual({ email: "seller@example.com", password: "SellerPassword123" });
         return response({ data: { id: "creator-1", name: "Ama" } });
       }
-      if (url.endsWith("/v1/lives")) return response({ data: [] });
+      if (url.endsWith("/v1/stores")) return response({ data: [] });
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -41,10 +41,14 @@ describe("login page", () => {
 
     expect(screen.queryByText("Your session stays on this device using a secure, HTTP-only cookie."))
       .not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Access code"), {
-      target: { value: "seller-access-code" },
+    expect(await screen.findByRole("link", { name: /claim your existing account/i })).toHaveAttribute("href", "/claim-account");
+    fireEvent.change(await screen.findByLabelText("Email"), {
+      target: { value: "seller@example.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "SellerPassword123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByRole("heading", { name: "Welcome back, Ama" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalled();

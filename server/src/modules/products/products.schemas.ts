@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationMetadataSchema } from "../../shared/utils/pagination.js";
 
 const productOptionsSchema = z.record(
   z.string().trim().min(1).max(50),
@@ -78,6 +79,10 @@ export const productResponseSchema = z.object({
 export type ProductResponse = z.infer<typeof productResponseSchema>;
 
 export const productsResponseSchema = z.array(productResponseSchema);
+export const paginatedProductListSchema = z.object({
+  data: z.array(productResponseSchema),
+  pagination: paginationMetadataSchema,
+});
 
 export const productImageUploadStatusSchema = z.discriminatedUnion("status", [
   z.object({

@@ -460,6 +460,60 @@ describe("Products API", () => {
     expect(response.body.error.code).toBe("LIVE_NOT_FOUND");
   });
 
+  it("paginates Store products while retaining full-array legacy listing and product detail", async () => {
+    const createdProducts = [];
+    for (let index = 0; index < 23; index += 1) {
+      createdProducts.push(await prisma.product.create({
+        data: {
+          storeId: liveId,
+          name: `Paged product ${String(index).padStart(2, "0")}`,
+          price: 1000 + index,
+        },
+      }));
+    }
+
+    const firstPage = await request(app)
+      .get(`/api/v1/stores/${liveId}/products`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const secondPage = await request(app)
+      .get(`/api/v1/stores/${liveId}/products?page=2&limit=20`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const outOfRange = await request(app)
+      .get(`/api/v1/stores/${liveId}/products?page=3&limit=20`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const legacy = await request(app)
+      .get(`/api/v1/lives/${liveId}/products`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const detail = await request(app)
+      .get(`/api/v1/stores/${liveId}/products/${createdProducts[22]!.id}`)
+      .set("Cookie", cookie)
+      .expect(200);
+
+    expect(firstPage.body.data).toHaveLength(20);
+    expect(secondPage.body.data).toHaveLength(3);
+    expect(outOfRange.body.data).toEqual([]);
+    expect(outOfRange.body.pagination).toMatchObject({ total: 23, totalPages: 2, hasPreviousPage: true, hasNextPage: false });
+    expect(firstPage.body.pagination).toMatchObject({ total: 23, page: 1, limit: 20, totalPages: 2, hasNextPage: true });
+    expect(new Set([...firstPage.body.data, ...secondPage.body.data].map((product: { id: string }) => product.id)).size).toBe(23);
+    expect(firstPage.body.data[0].storeId).toBe(liveId);
+    expect(firstPage.body.data[0].liveId).toBeUndefined();
+    expect(legacy.body.data).toHaveLength(23);
+    expect(legacy.body.data[0].liveId).toBe(liveId);
+    expect(detail.body.data).toMatchObject({ id: createdProducts[22]!.id, storeId: liveId });
+  });
+
+  it("rejects invalid Store product pagination parameters", async () => {
+    const response = await request(app)
+      .get(`/api/v1/stores/${liveId}/products?page=1.5&limit=101`)
+      .set("Cookie", cookie)
+      .expect(400);
+    expect(response.body.error).toBeDefined();
+  });
+
   it("updates product fields and allows clearing options", async () => {
     const created = await createProductRequest(liveId)
       .set("Cookie", cookie)

@@ -12,6 +12,7 @@ import {
   activeProductImagesInclude,
   productWithImages,
 } from "./product-images.service.js";
+import { createPaginationMetadata, type PaginationInput } from "../../shared/utils/pagination.js";
 
 export async function createProduct(
   creatorId: string,
@@ -155,7 +156,7 @@ async function findIdempotentProduct(
   return productWithImages(creationRequest.product);
 }
 
-export async function listProducts(creatorId: string, storeId: string) {
+export async function listProducts(creatorId: string, storeId: string, pagination?: PaginationInput) {
   const store = await prisma.store.findFirst({
     where: {
       id: storeId,
@@ -170,15 +171,36 @@ export async function listProducts(creatorId: string, storeId: string) {
     throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
   }
 
-  return prisma.product.findMany({
-    where: {
-      storeId: store.id,
-    },
-    orderBy: {
-      createdAt: "asc",
-    },
+  const where = { storeId: store.id };
+  const orderBy = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+  if (!pagination) {
+    return prisma.product.findMany({ where, orderBy, include: activeProductImagesInclude })
+      .then((products) => products.map(productWithImages));
+  }
+
+  const [total, products] = await Promise.all([
+    prisma.product.count({ where }),
+    prisma.product.findMany({
+      where,
+      orderBy,
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+      include: activeProductImagesInclude,
+    }),
+  ]);
+  return {
+    data: products.map(productWithImages),
+    pagination: createPaginationMetadata(pagination.page, pagination.limit, total),
+  };
+}
+
+export async function getProduct(creatorId: string, storeId: string, productId: string) {
+  const product = await prisma.product.findFirst({
+    where: { id: productId, storeId, store: { creatorId } },
     include: activeProductImagesInclude,
-  }).then((products) => products.map(productWithImages));
+  });
+  if (!product) throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+  return productWithImages(product);
 }
 
 export async function updateProduct(
