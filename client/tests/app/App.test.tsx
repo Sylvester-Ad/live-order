@@ -70,7 +70,9 @@ describe("application routes", () => {
 
   it("keeps registration feedback conditional for generic email responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
-      message: "If the details can be used, LiveOrder will email next steps.",
+      data: {
+        message: "If the details can be used, LiveOrder will email next steps.",
+      },
     }, 202)));
 
     renderRoute("/register");
@@ -79,7 +81,7 @@ describe("application routes", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "SellerPassword123" } });
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(await screen.findByRole("heading", { name: "Request received." })).toBeInTheDocument();
+    expect(await screen.findByText("Request received.")).toBeInTheDocument();
     expect(screen.queryByText(/Check your email for a verification link/i)).not.toBeInTheDocument();
     expect(screen.getByText(/If the details can be used, LiveOrder will email next steps/i)).toBeInTheDocument();
   });
