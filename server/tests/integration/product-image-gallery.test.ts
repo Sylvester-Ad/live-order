@@ -26,19 +26,19 @@ describe("Product image gallery and primary selection API", () => {
     expect(login.status).toBe(200);
     cookie = login.headers["set-cookie"][0].split(";")[0];
 
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: {
         creatorId,
         name: "Test Live",
         slug: `test-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
     liveId = live.id;
     liveSlug = live.slug;
 
     const product = await prisma.product.create({
-      data: { liveId, name: "Test product", price: 2500, stockQuantity: 3 },
+      data: { storeId: liveId, name: "Test product", price: 2500, stockQuantity: 3 },
     });
     productId = product.id;
   });
@@ -158,7 +158,7 @@ describe("Product image gallery and primary selection API", () => {
   it("rejects images belonging to another product without changing the existing primary", async () => {
     const primary = await createImage({ isPrimary: true });
     const otherProduct = await prisma.product.create({
-      data: { liveId, name: "Other product", price: 3000 },
+      data: { storeId: liveId, name: "Other product", price: 3000 },
     });
     const otherImage = await createImage({ targetProductId: otherProduct.id, isPrimary: true });
 
@@ -207,12 +207,12 @@ describe("Product image gallery and primary selection API", () => {
         accessCodeHash: await hashAccessCode(accessCode),
       },
     });
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Other Live",
         slug: `other-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
     const validOtherLogin = await request(app)

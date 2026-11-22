@@ -1,10 +1,10 @@
 import { useState } from "react";
 
 import { formatPesewas } from "../../../lib/format-money";
-import type { PublicLive } from "../api/public-live-api";
+import type { PublicStorefront } from "../api/public-live-api";
 import { PublicProductDetailsDialog } from "./public-product-details-dialog";
 
-type PublicProduct = PublicLive["products"][number];
+type PublicProduct = PublicStorefront["products"][number];
 
 export function PublicProductCard({
   product,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,9 +7,9 @@ import { AppProviders } from "../../../src/app/providers";
 import { createTestRouter } from "../../../src/app/router";
 
 const creator = { id: "creator-1", name: "Ama" };
-const live = { id: "live-1", name: "Friday fashion", slug: "friday-fashion", status: "ACTIVE", tiktokLiveUrl: null, createdAt: "2026-10-12T10:00:00.000Z", updatedAt: "2026-10-12T10:00:00.000Z" };
+const live = { id: "live-1", name: "Friday fashion", slug: "friday-fashion", status: "PUBLISHED", tiktokLiveUrl: null, createdAt: "2026-10-12T10:00:00.000Z", updatedAt: "2026-10-12T10:00:00.000Z" };
 const firstOrder = {
-  id: "order-1", liveId: "live-1", reference: "ORD-A1B2C3", customerName: "Ama Mensah", customerPhone: "0241234567", deliveryLocation: "Accra, Greater Accra", totalAmount: 25000, paymentStatus: "PENDING", createdAt: "2026-10-18T10:30:00.000Z",
+  id: "order-1", storeId: "live-1", reference: "ORD-A1B2C3", customerName: "Ama Mensah", customerPhone: "0241234567", deliveryLocation: "Accra, Greater Accra", totalAmount: 25000, paymentStatus: "PENDING", createdAt: "2026-10-18T10:30:00.000Z",
   items: [{ id: "item-1", productId: "product-1", productName: "Cotton shirt", productImageUrl: "https://images.example/cotton-shirt.png", unitPrice: 12500, quantity: 2, selectedOptions: { Size: "M", Colour: "Blue" } }],
 };
 
@@ -21,11 +21,13 @@ function mockFetch({
   paymentFails = false,
   exportFails = false,
   alreadyPaid = false,
+  secondPage = false,
   orderItems = firstOrder.items,
 }: {
   paymentFails?: boolean;
   exportFails?: boolean;
   alreadyPaid?: boolean;
+  secondPage?: boolean;
   orderItems?: typeof firstOrder.items;
 } = {}) {
   const initialOrder = { ...firstOrder, items: orderItems };
@@ -33,14 +35,19 @@ function mockFetch({
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
-    if (url.endsWith("/api/v1/lives")) return json({ data: [live] });
-    if (url.endsWith("/api/v1/lives/live-1/products")) return json({ data: [] });
-    if (url.endsWith("/api/v1/lives/live-1/orders/export")) {
+    if (url.endsWith("/api/v1/stores")) return json({ data: [live] });
+    if (url.includes("/api/v1/stores/live-1/products?")) return json({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
+    if (url.endsWith("/api/v1/stores/live-1/orders/export")) {
       if (exportFails) return json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed" } }, 500);
       return new Response('"Order Reference"\r\n"ORD-A1B2C3"\r\n', { headers: { "Content-Type": "text/csv; charset=utf-8" } });
     }
-    if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "GET") return json({ data: orders });
-    if (url.endsWith("/api/v1/orders/order-1") && init?.method === "PATCH") {
+    if (url.includes("/api/v1/stores/live-1/orders?") && init?.method === "GET") {
+      const page = Number(new URL(url).searchParams.get("page"));
+      const result = secondPage && page === 2 ? [{ ...initialOrder, id: "order-2", reference: "ORD-SECOND" }] : orders;
+      return json({ data: result, pagination: { page, limit: 20, total: secondPage ? 21 : result.length, totalPages: secondPage ? 2 : Math.ceil(result.length / 20), hasNextPage: secondPage && page === 1, hasPreviousPage: page > 1 } });
+    }
+    if (url.endsWith("/api/v1/stores/live-1/orders/order-1") && init?.method === "GET") return json({ data: orders[0] });
+    if (url.endsWith("/api/v1/stores/live-1/orders/order-1") && init?.method === "PATCH") {
       if (paymentFails) return json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed" } }, 500);
       orders = [{ ...firstOrder, paymentStatus: "PAID" }];
       return json({ data: orders[0] });
@@ -69,20 +76,77 @@ afterEach(() => {
 describe("seller order management", () => {
   it("lists reference, customer, total, date, payment status and links to details", async () => {
     vi.stubGlobal("fetch", mockFetch());
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
 
     const row = await screen.findByRole("row", { name: /ORD-A1B2C3/ });
     expect(within(row).getByText("Ama Mensah")).toBeInTheDocument();
     expect(within(row).getByText("GH₵ 250.00")).toBeInTheDocument();
     expect(within(row).getByText("Unpaid")).toBeInTheDocument();
-    expect(within(row).getByRole("link", { name: "View order" })).toHaveAttribute("href", "/lives/live-1/orders/order-1");
-    expect(screen.getByRole("link", { name: "← Live management" })).toHaveAttribute("href", "/lives/live-1");
+    expect(within(row).getByRole("link", { name: "View order" })).toHaveAttribute("href", "/stores/live-1/orders/order-1");
+    expect(screen.getByRole("link", { name: "← Store management" })).toHaveAttribute("href", "/stores/live-1");
     expect(await screen.findAllByRole("img", { name: "Cotton shirt product image" })).not.toHaveLength(0);
+  });
+
+  it("moves between server pages and reports the total order count", async () => {
+    const fetchMock = mockFetch({ secondPage: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPath("/stores/live-1/orders");
+
+    expect(await screen.findByText("21 orders total")).toBeInTheDocument();
+    expect(screen.getAllByText("Page 1 of 2")).toHaveLength(2);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("row", { name: /ORD-SECOND/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Page 2 of 2")).toHaveLength(2);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/orders?page=2&limit=20"))).toBe(true);
+  });
+
+  it("starts at page one when switching to another Store", async () => {
+    const secondStore = { ...live, id: "live-2", name: "Saturday market" };
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
+      if (url.endsWith("/api/v1/stores")) return json({ data: [live, secondStore] });
+      const storeId = url.includes("/api/v1/stores/live-2/") ? "live-2" : "live-1";
+      if (url.includes(`/api/v1/stores/${storeId}/orders?`)) {
+        const page = Number(new URL(url).searchParams.get("page"));
+        const data = storeId === "live-1" && page === 2
+          ? [{ ...firstOrder, id: "order-2", reference: "ORD-SECOND" }]
+          : [{ ...firstOrder, storeId }];
+        return json({
+          data,
+          pagination: {
+            page,
+            limit: 20,
+            total: storeId === "live-1" ? 21 : 1,
+            totalPages: storeId === "live-1" ? 2 : 1,
+            hasNextPage: storeId === "live-1" && page === 1,
+            hasPreviousPage: page > 1,
+          },
+        });
+      }
+      if (url.includes("/products?")) return json({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const router = createTestRouter(["/stores/live-1/orders"]);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppProviders><RouterProvider router={router} /></AppProviders>);
+
+    await screen.findByRole("row", { name: /ORD-A1B2C3/ });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("row", { name: /ORD-SECOND/ });
+    await act(async () => { await router.navigate("/stores/live-2/orders"); });
+
+    expect(await screen.findByRole("row", { name: /ORD-A1B2C3/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Page 1 of 1")).toHaveLength(2);
+    expect(requests.some((url) => url.includes("/api/v1/stores/live-2/orders?page=1&limit=20"))).toBe(true);
   });
 
   it("provides contextual Products and Orders navigation with active and mobile states", async () => {
     vi.stubGlobal("fetch", mockFetch());
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
 
     const user = userEvent.setup();
     const navigation = await screen.findAllByRole("navigation", { name: "Seller navigation" });
@@ -96,7 +160,7 @@ describe("seller order management", () => {
     expect(within(mobileNavigation!).getByRole("link", { name: "Orders" })).toHaveAttribute("aria-current", "page");
     expect(within(desktopNavigation!).getByRole("link", { name: "Products" })).toHaveAttribute(
       "href",
-      "/lives/live-1/products",
+      "/stores/live-1/products",
     );
 
     const productsLink = within(mobileNavigation!).getByRole("link", { name: "Products" });
@@ -128,7 +192,7 @@ describe("seller order management", () => {
       ],
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/orders/order-1");
+    renderPath("/stores/live-1/orders/order-1");
 
     expect(await screen.findByRole("img", { name: "Cotton shirt product image" })).toHaveAttribute(
       "src",
@@ -139,7 +203,7 @@ describe("seller order management", () => {
 
   it("falls back to a placeholder when a saved product image cannot load", async () => {
     vi.stubGlobal("fetch", mockFetch());
-    renderPath("/lives/live-1/orders/order-1");
+    renderPath("/stores/live-1/orders/order-1");
 
     const image = await screen.findByRole("img", { name: "Cotton shirt product image" });
     fireEvent.error(image);
@@ -151,19 +215,19 @@ describe("seller order management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return json({ data: [live] });
-      if (url.endsWith("/api/v1/lives/live-1/orders")) return json({ data: [] });
+      if (url.endsWith("/api/v1/stores")) return json({ data: [live] });
+      if (url.includes("/api/v1/stores/live-1/orders?")) return json({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
     expect(await screen.findByRole("heading", { name: "No orders yet" })).toBeInTheDocument();
 
   });
 
   it("does not offer payment confirmation for an already paid order", async () => {
     vi.stubGlobal("fetch", mockFetch({ alreadyPaid: true }));
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
     expect(await screen.findAllByText("Paid")).not.toHaveLength(0);
     expect(screen.queryByRole("button", { name: "Mark paid" })).not.toBeInTheDocument();
   });
@@ -172,18 +236,18 @@ describe("seller order management", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/creator/me")) return json({ data: creator });
-      if (url.endsWith("/api/v1/lives")) return json({ data: [live] });
+      if (url.endsWith("/api/v1/stores")) return json({ data: [live] });
       return json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed" } }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/orders");
-    expect(await screen.findByText("We couldn't load orders for this Live.", {}, { timeout: 5000 })).toBeInTheDocument();
+    renderPath("/stores/live-1/orders");
+    expect(await screen.findByText("We couldn't load orders for this Store.", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("shows persisted line details, options, customer data and total", async () => {
     vi.stubGlobal("fetch", mockFetch());
-    renderPath("/lives/live-1/orders/order-1");
+    renderPath("/stores/live-1/orders/order-1");
     expect(await screen.findByRole("heading", { name: "ORD-A1B2C3" })).toBeInTheDocument();
     expect(screen.getByText("Cotton shirt")).toBeInTheDocument();
     expect(screen.getByText("Size: M")).toBeInTheDocument();
@@ -191,13 +255,13 @@ describe("seller order management", () => {
     expect(screen.getByText("Accra, Greater Accra")).toBeInTheDocument();
     expect(screen.getByText(/125\.00 each/)).toBeInTheDocument();
     expect(screen.getAllByText("GH₵ 250.00")).not.toHaveLength(0);
-    expect(screen.getByRole("link", { name: "← All orders" })).toHaveAttribute("href", "/lives/live-1/orders");
+    expect(screen.getByRole("link", { name: "← All orders" })).toHaveAttribute("href", "/stores/live-1/orders");
   });
 
   it("confirms and updates payment status, with no action shown for paid orders", async () => {
     const fetchMock = mockFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
     expect(await screen.findAllByText("ORD-A1B2C3")).not.toHaveLength(0);
     fireEvent.click(screen.getAllByRole("button", { name: "Mark paid" })[0]);
     expect(await screen.findByRole("alertdialog", { name: "Confirm payment received?" })).toBeInTheDocument();
@@ -205,12 +269,12 @@ describe("seller order management", () => {
     expect(await screen.findByText("Order marked as paid.")).toBeInTheDocument();
     expect(await screen.findAllByText("Paid")).not.toHaveLength(0);
     expect(screen.queryByRole("button", { name: "Mark paid" })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/api/v1/orders/order-1") && init?.method === "PATCH" && init.body === JSON.stringify({ paymentStatus: "PAID" }))).toBe(true));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/api/v1/stores/live-1/orders/order-1") && init?.method === "PATCH" && init.body === JSON.stringify({ paymentStatus: "PAID" }))).toBe(true));
   });
 
   it("keeps a failed payment update unpaid and allows CSV export", async () => {
     vi.stubGlobal("fetch", mockFetch({ paymentFails: true }));
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
     expect(await screen.findAllByText("ORD-A1B2C3")).not.toHaveLength(0);
     fireEvent.click(screen.getAllByRole("button", { name: "Mark paid" })[0]);
     fireEvent.click(await screen.findByRole("button", { name: "Mark as paid" }));
@@ -218,7 +282,7 @@ describe("seller order management", () => {
     expect(screen.getAllByText("Unpaid")).not.toHaveLength(0);
   });
 
-  it("reports export errors and downloads using a Live-scoped filename", async () => {
+  it("reports export errors and downloads using a Store-scoped filename", async () => {
     const createObjectURL = vi.fn(() => "blob:orders");
     const revokeObjectURL = vi.fn();
     const downloadedNames: string[] = [];
@@ -229,19 +293,19 @@ describe("seller order management", () => {
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
     const fetchMock = mockFetch();
     vi.stubGlobal("fetch", fetchMock);
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
     expect(await screen.findAllByText("ORD-A1B2C3")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:orders");
     expect(downloadedNames).toHaveLength(1);
     expect(downloadedNames[0]).toMatch(/^Friday-fashion-orders-\d{4}-\d{2}-\d{2}\.csv$/);
-    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/lives/live-1/orders/export"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/stores/live-1/orders/export"))).toBe(true);
   });
 
   it("shows export failure feedback", async () => {
     vi.stubGlobal("fetch", mockFetch({ exportFails: true }));
-    renderPath("/lives/live-1/orders");
+    renderPath("/stores/live-1/orders");
     expect(await screen.findAllByText("ORD-A1B2C3")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     expect(await screen.findByText("The order export could not be downloaded. Please try again.")).toBeInTheDocument();

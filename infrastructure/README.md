@@ -123,11 +123,19 @@ In Secrets Manager, set `LIVEORDER_RUNTIME_SECRET_NAME` to a JSON object with no
 {
   "CLOUDINARY_CLOUD_NAME": "<your-cloud-name>",
   "CLOUDINARY_API_KEY": "<your-api-key>",
-  "CLOUDINARY_API_SECRET": "<your-api-secret>"
+  "CLOUDINARY_API_SECRET": "<your-api-secret>",
+  "SMTP_HOST": "<smtp-host>",
+  "SMTP_PORT": "587",
+  "SMTP_USERNAME": "<smtp-username>",
+  "SMTP_PASSWORD": "<smtp-password>",
+  "SMTP_SECURE": "false",
+  "SMTP_REQUIRE_TLS": "true",
+  "SMTP_FROM": "LiveOrder <accounts@example.com>",
+  "PUBLIC_APP_URL": "https://liveorder.site"
 }
 ```
 
-The instance helper `/usr/local/sbin/liveorder-sync-runtime-env` reads this secret and writes `/opt/liveorder/.env` with owner `ec2-user` and mode `0600`; it does not print credential values. The deploy helper refreshes this file before each release. After rotating the secret, run the sync helper through Session Manager and recreate the backend container. Never pass credentials through SSM parameters, workflow output, Docker build arguments, or frontend variables.
+The instance helper `/usr/local/sbin/liveorder-sync-runtime-env` reads this secret and writes `/opt/liveorder/.env` with owner `ec2-user` and mode `0600`; it does not print credential values. SMTP fields are optional until seller account email is enabled, but the username and password must either both be present or both be absent. Registration, account claiming, and password recovery return service unavailable until SMTP host, sender, and public HTTPS URL are configured. The deploy helper refreshes this file before each release. After rotating the secret, run the sync helper through Session Manager and recreate the backend container. Never pass credentials through SSM parameters, workflow output, Docker build arguments, or frontend variables.
 
 For LiveOrder's `liveorder.site` domain, set the GitHub production Environment variable `LIVEORDER_SITE_ADDRESS=liveorder.site` before running the production workflow. Point both `liveorder.site` and `www.liveorder.site` DNS records at `ApplicationPublicIp` (a `www` CNAME to the apex is also suitable). Caddy serves the primary hostname, redirects HTTP requests for `www` directly to the primary HTTPS hostname, and redirects HTTPS `www` requests to it. Caddy manages publicly trusted certificates for both hostnames when DNS is correct and inbound ports 80/443 are reachable. The primary hostname's HTTP-to-HTTPS redirect is managed automatically by Caddy. Do not use a placeholder hostname in production. Changing this setting through the application workflow does not require `cdk deploy`.
 

@@ -6,6 +6,7 @@ import {
   productCreationIdempotencyKeySchema,
   productImageUploadIdempotencyKeySchema,
   productResponseSchema,
+  paginatedProductListSchema,
   productsResponseSchema,
   updateProductSchema,
 } from "./products.schemas.js";
@@ -13,6 +14,7 @@ import {
   createProduct,
   deleteProduct,
   listProducts,
+  getProduct,
   updateProduct,
 } from "./products.service.js";
 import { AppError } from "../../shared/errors/app-error.js";
@@ -33,6 +35,7 @@ import {
   productImageUploadSuccessSchema,
 } from "./products.schemas.js";
 import { z } from "zod";
+import { normalizedPagination, paginationQuerySchema } from "../../shared/utils/pagination.js";
 
 const router = Router();
 const parseImage = multer({
@@ -75,11 +78,36 @@ router.get(
         );
       }
 
-      const products = await listProducts(req.creator!.id, liveId);
+      const query = paginationQuerySchema.parse(req.query);
+      const storeApiRequest = req.originalUrl.split("?")[0]?.startsWith("/api/v1/stores/") ?? false;
+      const shouldPaginate = storeApiRequest || query.page !== undefined || query.limit !== undefined;
+      const result = await listProducts(
+        req.creator!.id,
+        liveId,
+        shouldPaginate ? normalizedPagination(query) : undefined,
+      );
 
-      return res.json({
-        data: productsResponseSchema.parse(products),
-      });
+      if (Array.isArray(result)) {
+        return res.json({ data: productsResponseSchema.parse(result) });
+      }
+      return res.json(paginatedProductListSchema.parse(result));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  "/lives/:liveId/products/:productId",
+  requireCreator,
+  async (req, res, next) => {
+    try {
+      const { liveId, productId } = req.params;
+      if (typeof liveId !== "string" || typeof productId !== "string") {
+        throw new AppError(400, "INVALID_PRODUCT_ID", "Invalid product ID");
+      }
+      const product = await getProduct(req.creator!.id, liveId, productId);
+      return res.json({ data: productResponseSchema.parse(product) });
     } catch (error) {
       next(error);
     }

@@ -1,18 +1,24 @@
 import type { components } from "../../../types/openapi.generated";
 import { api } from "../../../lib/api-client";
 
-export type Live = components["schemas"]["LiveResponse"];
-export type CreateLiveInput = components["schemas"]["CreateLiveRequest"];
-export type UpdateLiveInput = components["schemas"]["UpdateLiveRequest"];
+export type Store = components["schemas"]["StoreResponse"];
+export type CreateStoreInput = components["schemas"]["CreateStoreRequest"];
+export type UpdateStoreInput = components["schemas"]["UpdateStoreDetailsRequest"];
 
-export const livesApi = {
+export const storesApi = {
   list(signal?: AbortSignal) {
-    return api.get<Live[]>("/v1/lives", { signal });
+    return api.get<Store[]>("/v1/stores", { signal });
   },
-  create(input: CreateLiveInput) {
-    return api.post<Live>("/v1/lives", input);
+  create(input: CreateStoreInput) {
+    return api.post<Store>("/v1/stores", input);
   },
-  update(liveId: string, input: UpdateLiveInput) {
-    return api.patch<Live>(`/v1/lives/${encodeURIComponent(liveId)}`, input);
+  update(storeId: string, input: UpdateStoreInput) {
+    return api.patch<Store>(`/v1/stores/${encodeURIComponent(storeId)}`, input);
+  },
+  publish(storeId: string) {
+    return api.post<Store>(`/v1/stores/${encodeURIComponent(storeId)}/publish`);
+  },
+  unpublish(storeId: string) {
+    return api.post<Store>(`/v1/stores/${encodeURIComponent(storeId)}/unpublish`);
   },
 };

@@ -1,9 +1,19 @@
 import { OpenAPIRegistry } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { paginationMetadataSchema } from "../shared/utils/pagination.js";
 import {
   creatorAccessSchema,
   creatorResponseSchema,
 } from "../modules/creators/creators.schemas.js";
+import {
+  authActionResponseSchema,
+  claimSchema,
+  emailRequestSchema,
+  passwordLoginSchema,
+  passwordResetSchema,
+  registerSchema,
+  tokenSchema,
+} from "../modules/creators/auth.schemas.js";
 import {
   mobileMoneySettingsResponseSchema,
   mobileMoneySettingsSuccessSchema,
@@ -12,9 +22,13 @@ import {
 
 import {
   createLiveSchema,
+  createStoreSchema,
   liveResponseSchema,
+  storeResponseSchema,
+  storesResponseSchema,
   tiktokLiveUrlSchema,
   updateLiveSchema,
+  updateStoreDetailsSchema,
 } from "../modules/lives/lives.schemas.js";
 
 import {
@@ -31,6 +45,7 @@ import {
 import {
   createOrderSchema,
   orderResponseSchema,
+  storeOrderResponseSchema,
   updateOrderSchema,
 } from "../modules/orders/orders.schemas.js";
 
@@ -113,6 +128,10 @@ export const productSuccessSchema = z.object({
 export const productsSuccessSchema = z.object({
   data: z.array(productResponseSchema),
 });
+export const paginatedProductsSuccessSchema = z.object({
+  data: z.array(productResponseSchema),
+  pagination: paginationMetadataSchema,
+});
 
 export const productImageUploadSuccessResponseSchema = z.object({
   data: productImageUploadSuccessSchema,
@@ -132,6 +151,31 @@ export const orderSuccessSchema = z.object({
 
 export const ordersSuccessSchema = z.object({
   data: z.array(orderResponseSchema),
+});
+export const paginatedOrdersSuccessSchema = z.object({
+  data: z.array(orderResponseSchema),
+  pagination: paginationMetadataSchema,
+});
+
+export const storeProductResponseSchema = productResponseSchema
+  .omit({ liveId: true })
+  .extend({ storeId: z.string() });
+export const storeProductSuccessSchema = z.object({ data: storeProductResponseSchema });
+export const storeProductsSuccessSchema = z.object({ data: z.array(storeProductResponseSchema) });
+export const paginatedStoreProductsSuccessSchema = z.object({
+  data: z.array(storeProductResponseSchema),
+  pagination: paginationMetadataSchema,
+});
+export const storeProductImageUploadSuccessSchema = z.object({
+  data: productImageUploadSuccessSchema.extend({
+    product: storeProductResponseSchema,
+  }),
+});
+export const storeOrderSuccessSchema = z.object({ data: storeOrderResponseSchema });
+export const storeOrdersSuccessSchema = z.object({ data: z.array(storeOrderResponseSchema) });
+export const paginatedStoreOrdersSuccessSchema = z.object({
+  data: z.array(storeOrderResponseSchema),
+  pagination: paginationMetadataSchema,
 });
 
 // Public Live response.
@@ -160,11 +204,23 @@ export const publicLiveSuccessSchema = z.object({
   data: publicLiveResponseSchema,
 });
 
+export const publicStoreResponseSchema = publicLiveResponseSchema.extend({
+  status: z.literal("PUBLISHED"),
+});
+export const publicStoreSuccessSchema = z.object({ data: publicStoreResponseSchema });
+
 // Register reusable schemas.
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("HealthResponse", healthResponseSchema);
 
 registry.register("CreatorAccessRequest", creatorAccessSchema);
+registry.register("SellerRegistrationRequest", registerSchema);
+registry.register("SellerClaimRequest", claimSchema);
+registry.register("PasswordLoginRequest", passwordLoginSchema);
+registry.register("EmailRequest", emailRequestSchema);
+registry.register("EmailVerificationRequest", tokenSchema);
+registry.register("PasswordResetRequest", passwordResetSchema);
+registry.register("AuthActionResponse", authActionResponseSchema);
 registry.register("CreatorResponse", creatorResponseSchema);
 registry.register("CreatorSuccessResponse", creatorSuccessSchema);
 registry.register("UpdateMobileMoneySettingsRequest", updateMobileMoneySettingsSchema);
@@ -177,12 +233,23 @@ registry.register("UpdateLiveRequest", updateLiveSchema);
 registry.register("LiveResponse", liveResponseSchema);
 registry.register("LiveSuccessResponse", liveSuccessSchema);
 registry.register("LivesSuccessResponse", livesSuccessSchema);
+registry.register("CreateStoreRequest", createStoreSchema);
+registry.register("UpdateStoreDetailsRequest", updateStoreDetailsSchema);
+registry.register("StoreResponse", storeResponseSchema);
+registry.register("StoreSuccessResponse", z.object({ data: storeResponseSchema }));
+registry.register("StoresSuccessResponse", z.object({ data: storesResponseSchema }));
 
 registry.register("CreateProductRequest", createProductOpenApiSchema);
 registry.register("UpdateProductRequest", updateProductOpenApiSchema);
 registry.register("ProductResponse", productResponseSchema);
 registry.register("ProductSuccessResponse", productSuccessSchema);
 registry.register("ProductsSuccessResponse", productsSuccessSchema);
+registry.register("PaginatedProductsSuccessResponse", paginatedProductsSuccessSchema);
+registry.register("StoreProductResponse", storeProductResponseSchema);
+registry.register("StoreProductSuccessResponse", storeProductSuccessSchema);
+registry.register("StoreProductsSuccessResponse", storeProductsSuccessSchema);
+registry.register("PaginatedStoreProductsSuccessResponse", paginatedStoreProductsSuccessSchema);
+registry.register("StoreProductImageUploadSuccessResponse", storeProductImageUploadSuccessSchema);
 registry.register("ProductImageUploadSuccessResponse", productImageUploadSuccessResponseSchema);
 registry.register("ProductImageUploadStatusSuccessResponse", productImageUploadStatusSuccessSchema);
 registry.register("PendingProductImageUploadsSuccessResponse", pendingProductImageUploadsSuccessSchema);
@@ -191,7 +258,14 @@ registry.register("CreateOrderRequest", createOrderOpenApiSchema);
 registry.register("OrderResponse", orderResponseSchema);
 registry.register("OrderSuccessResponse", orderSuccessSchema);
 registry.register("OrdersSuccessResponse", ordersSuccessSchema);
+registry.register("PaginatedOrdersSuccessResponse", paginatedOrdersSuccessSchema);
+registry.register("StoreOrderResponse", storeOrderResponseSchema);
+registry.register("StoreOrderSuccessResponse", storeOrderSuccessSchema);
+registry.register("StoreOrdersSuccessResponse", storeOrdersSuccessSchema);
+registry.register("PaginatedStoreOrdersSuccessResponse", paginatedStoreOrdersSuccessSchema);
 registry.register("UpdateOrderRequest", updateOrderSchema);
 
 registry.register("PublicLiveResponse", publicLiveResponseSchema);
 registry.register("PublicLiveSuccessResponse", publicLiveSuccessSchema);
+registry.register("PublicStoreResponse", publicStoreResponseSchema);
+registry.register("PublicStoreSuccessResponse", publicStoreSuccessSchema);

@@ -46,7 +46,7 @@ describe("Live lifecycle", () => {
     liveId = liveResponse.body.data.id;
 
     expect(
-      await prisma.live.findFirst({
+      await prisma.store.findFirst({
         where: { id: liveId, creatorId: creator.id },
       }),
     ).not.toBeNull();
@@ -57,7 +57,7 @@ describe("Live lifecycle", () => {
   });
 
   it("creates a Live in DRAFT status and activates it", async () => {
-    const initialLive = await prisma.live.findUniqueOrThrow({
+    const initialLive = await prisma.store.findUniqueOrThrow({
       where: { id: liveId },
     });
 
@@ -70,6 +70,19 @@ describe("Live lifecycle", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.data.status).toBe("ACTIVE");
+
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: liveId } })).status)
+      .toBe("PUBLISHED");
+
+    const ended = await request(app)
+      .patch(`/api/v1/lives/${liveId}`)
+      .set("Cookie", cookie)
+      .send({ status: "ENDED" });
+
+    expect(ended.status).toBe(200);
+    expect(ended.body.data.status).toBe("ENDED");
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: liveId } })).status)
+      .toBe("UNPUBLISHED");
   });
 
   it("accepts, updates, and clears a supported TikTok LIVE URL", async () => {
@@ -114,9 +127,9 @@ describe("Live lifecycle", () => {
   });
 
   it("rejects attempts to reopen an ended Live", async () => {
-    await prisma.live.update({
+    await prisma.store.update({
       where: { id: liveId },
-      data: { status: "ENDED" },
+      data: { status: "UNPUBLISHED" },
     });
 
     const response = await request(app)
@@ -126,6 +139,7 @@ describe("Live lifecycle", () => {
 
     expect(response.status).toBe(409);
     expect(response.body.error.code).toBe("INVALID_STATUS_TRANSITION");
+    expect(response.body.error.message).toBe("Cannot change Live status from ENDED to ACTIVE");
   });
 
   it("rejects requests from unauthenticated users", async () => {

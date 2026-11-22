@@ -4,6 +4,7 @@ import {
   createOrderSchema,
   orderIdempotencyKeySchema,
   orderResponseSchema,
+  paginatedOrderListSchema,
   updateOrderSchema,
 } from "./orders.schemas.js";
 import {
@@ -14,6 +15,7 @@ import {
 } from "./orders.service.js";
 import { AppError } from "../../shared/errors/app-error.js";
 import { toCsv } from "../../shared/utils/csv.js";
+import { normalizedPagination, paginationQuerySchema } from "../../shared/utils/pagination.js";
 
 const router = Router();
 
@@ -38,7 +40,7 @@ router.post("/lives/:liveId/orders", async (req, res, next) => {
     const order = await createOrder(liveId, input, idempotencyKey);
 
     return res.status(201).json({
-      data: orderResponseSchema.parse(order),
+      data: orderResponseSchema.parse({ ...order, liveId: order.storeId }),
     });
   } catch (error) {
     next(error);
@@ -57,11 +59,23 @@ router.get("/lives/:liveId/orders", requireCreator, async (req, res, next) => {
       );
     }
 
-    const orders = await listOrders(req.creator!.id, liveId);
+    const query = paginationQuerySchema.parse(req.query);
+    const storeApiRequest = req.originalUrl.split("?")[0]?.startsWith("/api/v1/stores/") ?? false;
+    const shouldPaginate = storeApiRequest || query.page !== undefined || query.limit !== undefined;
+    const result = await listOrders(
+      req.creator!.id,
+      liveId,
+      shouldPaginate ? normalizedPagination(query) : undefined,
+    );
 
-    return res.json({
-      data: orders.map((order) => orderResponseSchema.parse(order)),
-    });
+    if (Array.isArray(result)) {
+      return res.json({ data: result.map((order) => orderResponseSchema.parse({ ...order, liveId: order.storeId })) });
+    }
+
+    return res.json(paginatedOrderListSchema.parse({
+      data: result.data.map((order) => ({ ...order, liveId: order.storeId })),
+      pagination: result.pagination,
+    }));
   } catch (error) {
     next(error);
   }
@@ -86,6 +100,7 @@ router.patch("/orders/:orderId", requireCreator, async (req, res, next) => {
     return res.json({
       data: orderResponseSchema.parse({
         ...order,
+        liveId: order.storeId,
         paymentStatus: input.paymentStatus,
       }),
     });

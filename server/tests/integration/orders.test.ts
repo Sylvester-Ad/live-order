@@ -84,7 +84,7 @@ describe("Orders API", () => {
     capId = capResponse.body.data.id;
 
     expect(
-      await prisma.live.findFirst({
+      await prisma.store.findFirst({
         where: { id: liveId, creatorId: creator.id },
       }),
     ).not.toBeNull();
@@ -576,5 +576,71 @@ describe("Orders API", () => {
       idempotencyKey: null,
       requestFingerprint: null,
     });
+  });
+
+  it("paginates Store orders deterministically while preserving the legacy Live array contract", async () => {
+    const now = Date.now();
+    for (let index = 0; index < 23; index += 1) {
+      await prisma.order.create({
+        data: {
+          storeId: liveId,
+          reference: `ORD-PAGE-${String(index).padStart(3, "0")}`,
+          customerName: `Customer ${index}`,
+          customerPhone: "0241234567",
+          deliveryLocation: "Accra",
+          totalAmount: 1000,
+          createdAt: new Date(now + index * 1_000),
+        },
+      });
+    }
+
+    const firstPage = await request(app)
+      .get(`/api/v1/stores/${liveId}/orders`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const secondPage = await request(app)
+      .get(`/api/v1/stores/${liveId}/orders?page=2&limit=20`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const legacy = await request(app)
+      .get(`/api/v1/lives/${liveId}/orders`)
+      .set("Cookie", cookie)
+      .expect(200);
+
+    expect(firstPage.body.data).toHaveLength(20);
+    expect(secondPage.body.data).toHaveLength(3);
+    expect(firstPage.body.pagination).toEqual({
+      page: 1,
+      limit: 20,
+      total: 23,
+      totalPages: 2,
+      hasNextPage: true,
+      hasPreviousPage: false,
+    });
+    expect(secondPage.body.pagination.hasPreviousPage).toBe(true);
+    expect(firstPage.body.data.map((order: { id: string }) => order.id)
+      .filter((id: string) => secondPage.body.data.some((order: { id: string }) => order.id === id))).toEqual([]);
+    expect(firstPage.body.data[0].reference).toBe("ORD-PAGE-022");
+    expect(firstPage.body.data[0].storeId).toBe(liveId);
+    expect(firstPage.body.data[0].liveId).toBeUndefined();
+    expect(Array.isArray(legacy.body.data)).toBe(true);
+    expect(legacy.body.data).toHaveLength(23);
+    expect(legacy.body.data[0].liveId).toBe(liveId);
+    expect(legacy.body.pagination).toBeUndefined();
+  });
+
+  it("validates order pagination and returns an empty out-of-range page with accurate totals", async () => {
+    const invalid = await request(app)
+      .get(`/api/v1/stores/${liveId}/orders?page=0&limit=101`)
+      .set("Cookie", cookie)
+      .expect(400);
+    expect(invalid.body.error).toBeDefined();
+
+    const outOfRange = await request(app)
+      .get(`/api/v1/stores/${liveId}/orders?page=2&limit=20`)
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(outOfRange.body.data).toEqual([]);
+    expect(outOfRange.body.pagination).toMatchObject({ total: 0, totalPages: 0, hasNextPage: false });
   });
 });

@@ -20,14 +20,14 @@ type ImageFile = { buffer: Buffer; mimetype: string };
 
 function createFileFingerprint(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
   mimeType: SupportedImageMimeType,
   buffer: Buffer,
 ) {
   const fileDigest = createHash("sha256").update(buffer).digest("hex");
   return createHash("sha256")
-    .update(JSON.stringify([creatorId, liveId, productId, mimeType, fileDigest]))
+    .update(JSON.stringify([creatorId, storeId, productId, mimeType, fileDigest]))
     .digest("hex");
 }
 
@@ -56,10 +56,10 @@ function deletedUploadError() {
 async function findUploadRequest(
   idempotencyKey: string,
   creatorId: string,
-  liveId: string,
+  storeId: string,
 ) {
   return prisma.productImageUploadRequest.findFirst({
-    where: { idempotencyKey, creatorId, liveId },
+    where: { idempotencyKey, creatorId, storeId },
     include: { productImage: true },
   });
 }
@@ -89,7 +89,7 @@ async function finalizeProductImageUpload(
         id: request.id,
         idempotencyKey: request.idempotencyKey,
         creatorId: request.creatorId,
-        liveId: request.liveId,
+        storeId: request.storeId,
         productId: request.productId,
         fileFingerprint: request.fileFingerprint,
         provider: request.provider,
@@ -109,7 +109,7 @@ async function finalizeProductImageUpload(
       if (existing.status === "DELETED") throw deletedUploadError();
       if (
         existing.creatorId !== request.creatorId ||
-        existing.liveId !== request.liveId ||
+        existing.storeId !== request.storeId ||
         existing.productId !== request.productId ||
         existing.fileFingerprint !== request.fileFingerprint
       ) {
@@ -130,9 +130,9 @@ async function finalizeProductImageUpload(
     const product = await tx.product.findFirst({
       where: {
         id: request.productId,
-        liveId: request.liveId,
+        storeId: request.storeId,
         isDeleting: false,
-        live: { creatorId: request.creatorId },
+        store: { creatorId: request.creatorId },
       },
       select: {
         id: true,
@@ -148,8 +148,8 @@ async function finalizeProductImageUpload(
       const exists = await tx.product.findFirst({
         where: {
           id: request.productId,
-          liveId: request.liveId,
-          live: { creatorId: request.creatorId },
+          storeId: request.storeId,
+          store: { creatorId: request.creatorId },
         },
         select: { id: true },
       });
@@ -176,7 +176,7 @@ async function finalizeProductImageUpload(
 
 export async function uploadProductImage(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
   rawIdempotencyKey: string | undefined,
   file: ImageFile,
@@ -191,26 +191,26 @@ export async function uploadProductImage(
   }
 
   const mimeType = identifyImageFormat(file.buffer, file.mimetype);
-  const fileFingerprint = createFileFingerprint(creatorId, liveId, productId, mimeType, file.buffer);
+  const fileFingerprint = createFileFingerprint(creatorId, storeId, productId, mimeType, file.buffer);
   const input: ReserveProductImageSlotInput = {
     idempotencyKey,
     creatorId,
-    liveId,
+    storeId,
     productId,
     fileFingerprint,
     provider: "CLOUDINARY",
   };
 
-  const live = await prisma.live.findFirst({
-    where: { id: liveId, creatorId },
+  const live = await prisma.store.findFirst({
+    where: { id: storeId, creatorId },
     select: { id: true },
   });
   if (!live) throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
 
-  const existing = await findUploadRequest(idempotencyKey, creatorId, liveId);
+  const existing = await findUploadRequest(idempotencyKey, creatorId, storeId);
   if (!existing) {
     const product = await prisma.product.findFirst({
-      where: { id: productId, liveId, live: { creatorId } },
+      where: { id: productId, storeId, store: { creatorId } },
       select: { id: true },
     });
     if (!product) throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
@@ -274,14 +274,14 @@ export async function uploadProductImage(
 
 export async function getProductImageUploadStatus(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   rawIdempotencyKey: string,
 ) {
   const idempotencyKey = productImageUploadIdempotencyKeySchema.parse(rawIdempotencyKey);
-  const live = await prisma.live.findFirst({ where: { id: liveId, creatorId }, select: { id: true } });
+  const live = await prisma.store.findFirst({ where: { id: storeId, creatorId }, select: { id: true } });
   if (!live) throw new AppError(404, "IMAGE_UPLOAD_NOT_FOUND", "Image upload not found");
 
-  const request = await findUploadRequest(idempotencyKey, creatorId, liveId);
+  const request = await findUploadRequest(idempotencyKey, creatorId, storeId);
   if (!request) throw new AppError(404, "IMAGE_UPLOAD_NOT_FOUND", "Image upload not found");
   if (request.status === "DELETED") throw deletedUploadError();
 
@@ -309,17 +309,17 @@ export async function getProductImageUploadStatus(
 
 export async function listPendingProductImageUploads(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
 ) {
   const product = await prisma.product.findFirst({
-    where: { id: productId, liveId, live: { creatorId } },
+    where: { id: productId, storeId, store: { creatorId } },
     select: { id: true },
   });
   if (!product) throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
 
   const uploads = await prisma.productImageUploadRequest.findMany({
-    where: { creatorId, liveId, productId, status: "PENDING" },
+    where: { creatorId, storeId, productId, status: "PENDING" },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { idempotencyKey: true, createdAt: true },
   });

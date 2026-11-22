@@ -21,7 +21,7 @@ const liveResponse = (
     id: "live-1",
     name: "Friday collection",
     slug: "friday-collection",
-    status: "ACTIVE",
+    status: "PUBLISHED",
     tiktokLiveUrl,
     products: [
       {
@@ -54,7 +54,7 @@ function response(data: unknown, status = 200) {
 
 const confirmedOrder = {
   id: "order-1",
-  liveId: "live-1",
+  storeId: "live-1",
   reference: "ORD-0123456789ABCDEF",
   customerName: "Ama Mensah",
   customerPhone: "0241234567",
@@ -158,8 +158,8 @@ describe("public customer ordering", () => {
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse());
-      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/public/stores/friday-collection")) return response(liveResponse());
+      if (url.endsWith("/api/v1/stores/live-1/orders") && init?.method === "POST") {
         return response({ data: paymentOrder }, 201);
       }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
@@ -256,8 +256,8 @@ describe("public customer ordering", () => {
   it("shows availability, validates the basket, and submits options without client prices", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse());
-      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/public/stores/friday-collection")) return response(liveResponse());
+      if (url.endsWith("/api/v1/stores/live-1/orders") && init?.method === "POST") {
         return response({ data: confirmedOrder }, 201);
       }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
@@ -291,7 +291,7 @@ describe("public customer ordering", () => {
     expect(screen.getByText(/Mobile Money details were not available when the order was placed/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Arrange payment with the seller" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue shopping" })).toBeInTheDocument();
-    const orderCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST");
+    const orderCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/api/v1/stores/live-1/orders") && init?.method === "POST");
     expect(JSON.parse(String(orderCall?.[1]?.body))).toEqual({
       customerName: "Ama Mensah",
       customerPhone: "0241234567",
@@ -309,8 +309,8 @@ describe("public customer ordering", () => {
     const requestKeys: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/v1/public/lives/friday-collection")) return response(liveResponse());
-      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/public/stores/friday-collection")) return response(liveResponse());
+      if (url.endsWith("/api/v1/stores/live-1/orders") && init?.method === "POST") {
         orderRequests += 1;
         requestKeys.push(new Headers(init.headers).get("Idempotency-Key") ?? "");
         if (orderRequests === 1) {
@@ -345,11 +345,11 @@ describe("public customer ordering", () => {
     let liveRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/v1/public/lives/friday-collection")) {
+      if (url.endsWith("/api/v1/public/stores/friday-collection")) {
         liveRequests += 1;
         return response(liveResponse(liveRequests > 1 ? 2 : 7));
       }
-      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") {
+      if (url.endsWith("/api/v1/stores/live-1/orders") && init?.method === "POST") {
         return response({ error: { code: "INSUFFICIENT_STOCK", message: "Not enough stock" } }, 409);
       }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
@@ -378,11 +378,11 @@ describe("public customer ordering", () => {
     let liveRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/v1/public/lives/friday-collection")) {
+      if (url.endsWith("/api/v1/public/stores/friday-collection")) {
         liveRequests += 1;
         return response(liveResponse(liveRequests > 1 ? 5 : 7, "https://www.tiktok.com/@creator/live"));
       }
-      if (url.endsWith("/api/v1/lives/live-1/orders") && init?.method === "POST") return response({ data: confirmedOrder }, 201);
+      if (url.endsWith("/api/v1/stores/live-1/orders") && init?.method === "POST") return response({ data: confirmedOrder }, 201);
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -420,6 +420,6 @@ describe("public customer ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Place order" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter your name using 1 to 100 characters.");
-    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/lives/live-1/orders"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/v1/stores/live-1/orders"))).toBe(false);
   });
 });

@@ -31,6 +31,12 @@ async function createOrder(liveId: string, productId: string, idempotencyKey = r
     });
 }
 
+function storeSettingsRequest(storeId: string, cookie: string) {
+  return request(app)
+    .put(`/api/v1/stores/${storeId}/mobile-money`)
+    .set("Cookie", cookie);
+}
+
 describe("Creator Mobile Money settings and order snapshots", () => {
   let seller: Seller;
   let liveId: string;
@@ -39,17 +45,17 @@ describe("Creator Mobile Money settings and order snapshots", () => {
   beforeEach(async () => {
     await resetTestDatabase();
     seller = await createSeller("Ama's shop");
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: {
         creatorId: seller.creatorId,
         name: "Friday collection",
         slug: `friday-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
     liveId = live.id;
     const product = await prisma.product.create({
-      data: { liveId, name: "Cotton shirt", price: 2500, stockQuantity: 20 },
+      data: { storeId: liveId, name: "Cotton shirt", price: 2500, stockQuantity: 20 },
     });
     productId = product.id;
   });
@@ -268,7 +274,7 @@ describe("Creator Mobile Money settings and order snapshots", () => {
   it("returns null snapshots for legacy orders created without payment details", async () => {
     const order = await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         reference: `ORD-${randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase()}`,
         customerName: "Legacy Customer",
         customerPhone: "0241234567",
@@ -294,5 +300,231 @@ describe("Creator Mobile Money settings and order snapshots", () => {
         mobileMoneyAccountName: null,
       }),
     ]));
+  });
+
+  it("stores independent settings per Store and uses them through Store and Live checkout routes", async () => {
+    const secondStore = await prisma.store.create({
+      data: {
+        creatorId: seller.creatorId,
+        name: "Weekend collection",
+        slug: `weekend-${randomUUID()}`,
+        status: "PUBLISHED",
+      },
+    });
+    const secondProduct = await prisma.product.create({
+      data: { storeId: secondStore.id, name: "Linen shirt", price: 3500, stockQuantity: 5 },
+    });
+
+    const firstSettings = await storeSettingsRequest(liveId, seller.cookie).send({
+      provider: "MTN_MOBILE_MONEY",
+      mobileMoneyNumber: "0241234567",
+      accountName: "First Store",
+      enabled: true,
+    });
+    expect(firstSettings.status).toBe(200);
+
+    const secondSettings = await storeSettingsRequest(secondStore.id, seller.cookie).send({
+      provider: "TELECEL_CASH",
+      mobileMoneyNumber: "0507654321",
+      accountName: "Second Store",
+      enabled: true,
+    });
+    expect(secondSettings.status).toBe(200);
+
+    const firstOrder = await createOrder(liveId, productId);
+    const secondOrder = await request(app)
+      .post(`/api/v1/stores/${secondStore.id}/orders`)
+      .set("Idempotency-Key", randomUUID())
+      .send({
+        customerName: "Ama Mensah",
+        customerPhone: "0241234567",
+        deliveryLocation: "Madina, Accra",
+        items: [{ productId: secondProduct.id, quantity: 1 }],
+      });
+
+    expect(firstOrder.body.data).toMatchObject({
+      mobileMoneyProvider: "MTN_MOBILE_MONEY",
+      mobileMoneyNumber: "0241234567",
+      mobileMoneyAccountName: "First Store",
+    });
+    expect(secondOrder.body.data).toMatchObject({
+      mobileMoneyProvider: "TELECEL_CASH",
+      mobileMoneyNumber: "0507654321",
+      mobileMoneyAccountName: "Second Store",
+    });
+
+    const sameNumber = await storeSettingsRequest(secondStore.id, seller.cookie).send({
+      provider: "TELECEL_CASH",
+      mobileMoneyNumber: "0241234567",
+      accountName: "Second Store",
+      enabled: true,
+    });
+    expect(sameNumber.status).toBe(200);
+
+    const disabled = await storeSettingsRequest(secondStore.id, seller.cookie).send({
+      provider: "TELECEL_CASH",
+      mobileMoneyNumber: "0241234567",
+      accountName: "Second Store",
+      enabled: false,
+    });
+    expect(disabled.status).toBe(200);
+    const disabledOrder = await createOrder(secondStore.id, secondProduct.id);
+    expect(disabledOrder.body.data).toMatchObject({
+      mobileMoneyProvider: null,
+      mobileMoneyNumber: null,
+      mobileMoneyAccountName: null,
+    });
+
+    const orderHistory = await request(app)
+      .get(`/api/v1/stores/${secondStore.id}/orders`)
+      .set("Cookie", seller.cookie)
+      .expect(200);
+    expect(orderHistory.body.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reference: secondOrder.body.data.reference,
+        mobileMoneyProvider: "TELECEL_CASH",
+        mobileMoneyNumber: "0507654321",
+        mobileMoneyAccountName: "Second Store",
+      }),
+    ]));
+  });
+
+  it("requires Store ownership and returns null for an unconfigured owned Store", async () => {
+    const unauthenticated = await request(app).get(`/api/v1/stores/${liveId}/mobile-money`);
+    expect(unauthenticated.status).toBe(401);
+
+    const empty = await request(app)
+      .get(`/api/v1/stores/${liveId}/mobile-money`)
+      .set("Cookie", seller.cookie);
+    expect(empty.status).toBe(200);
+    expect(empty.body.data).toBeNull();
+
+    const otherSeller = await createSeller("Other seller");
+    await request(app)
+      .get(`/api/v1/stores/${liveId}/mobile-money`)
+      .set("Cookie", otherSeller.cookie)
+      .expect(404);
+    await request(app)
+      .put(`/api/v1/stores/${liveId}/mobile-money`)
+      .set("Cookie", otherSeller.cookie)
+      .send({
+        provider: "AT_MONEY",
+        mobileMoneyNumber: "0279876543",
+        accountName: "Other seller",
+        enabled: true,
+      })
+      .expect(404);
+  });
+
+  it("refreshes inherited settings but preserves Store-managed settings on legacy updates", async () => {
+    await request(app)
+      .put("/api/v1/creator/mobile-money")
+      .set("Cookie", seller.cookie)
+      .send({
+        provider: "MTN_MOBILE_MONEY",
+        mobileMoneyNumber: "0241234567",
+        accountName: "Legacy default",
+        enabled: true,
+      })
+      .expect(200);
+
+    const inheritedStore = await prisma.store.create({
+      data: {
+        creatorId: seller.creatorId,
+        name: "Inherited store",
+        slug: `inherited-${randomUUID()}`,
+      },
+    });
+    const managedStore = await prisma.store.create({
+      data: {
+        creatorId: seller.creatorId,
+        name: "Managed store",
+        slug: `managed-${randomUUID()}`,
+      },
+    });
+
+    await prisma.storeMobileMoneySettings.create({
+      data: {
+        storeId: inheritedStore.id,
+        provider: "MTN_MOBILE_MONEY",
+        mobileMoneyNumber: "0241234567",
+        accountName: "Legacy default",
+        enabled: true,
+        origin: "LEGACY_INHERITED",
+      },
+    });
+    await storeSettingsRequest(managedStore.id, seller.cookie).send({
+      provider: "AT_MONEY",
+      mobileMoneyNumber: "0279876543",
+      accountName: "Managed settings",
+      enabled: false,
+    }).expect(200);
+
+    await request(app)
+      .put("/api/v1/creator/mobile-money")
+      .set("Cookie", seller.cookie)
+      .send({
+        provider: "TELECEL_CASH",
+        mobileMoneyNumber: "0507654321",
+        accountName: "Updated legacy default",
+        enabled: true,
+      })
+      .expect(200);
+
+    const inherited = await prisma.storeMobileMoneySettings.findUniqueOrThrow({ where: { storeId: inheritedStore.id } });
+    const managed = await prisma.storeMobileMoneySettings.findUniqueOrThrow({ where: { storeId: managedStore.id } });
+    expect(inherited).toMatchObject({
+      provider: "TELECEL_CASH",
+      mobileMoneyNumber: "0507654321",
+      accountName: "Updated legacy default",
+      enabled: true,
+      origin: "LEGACY_INHERITED",
+    });
+    expect(managed).toMatchObject({
+      provider: "AT_MONEY",
+      mobileMoneyNumber: "0279876543",
+      accountName: "Managed settings",
+      enabled: false,
+      origin: "STORE_MANAGED",
+    });
+  });
+
+  it("new Stores inherit existing legacy settings and remain unconfigured when none exist", async () => {
+    await request(app)
+      .put("/api/v1/creator/mobile-money")
+      .set("Cookie", seller.cookie)
+      .send({
+        provider: "AT_MONEY",
+        mobileMoneyNumber: "0279876543",
+        accountName: "Ama Mensah",
+        enabled: false,
+      })
+      .expect(200);
+
+    const created = await request(app)
+      .post("/api/v1/stores")
+      .set("Cookie", seller.cookie)
+      .send({ name: "New inherited Store" });
+    expect(created.status).toBe(201);
+    const inherited = await prisma.storeMobileMoneySettings.findUnique({
+      where: { storeId: created.body.data.id },
+    });
+    expect(inherited).toMatchObject({
+      provider: "AT_MONEY",
+      mobileMoneyNumber: "0279876543",
+      accountName: "Ama Mensah",
+      enabled: false,
+      origin: "LEGACY_INHERITED",
+    });
+
+    const otherSeller = await createSeller("No settings seller");
+    const unconfigured = await request(app)
+      .post("/api/v1/stores")
+      .set("Cookie", otherSeller.cookie)
+      .send({ name: "Unconfigured Store" });
+    expect(unconfigured.status).toBe(201);
+    expect(await prisma.storeMobileMoneySettings.findUnique({
+      where: { storeId: unconfigured.body.data.id },
+    })).toBeNull();
   });
 });

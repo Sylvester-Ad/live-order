@@ -1,34 +1,41 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { sellerOrdersApi, type SellerOrder } from "../api/seller-orders-api";
+import { sellerOrdersApi } from "../api/seller-orders-api";
 
-export const sellerOrdersQueryKey = (liveId: string) => ["orders", liveId] as const;
+export const sellerOrdersQueryKey = (storeId: string) => ["stores", storeId, "orders"] as const;
+export const sellerOrdersPageQueryKey = (storeId: string, page: number, limit: number) =>
+  [...sellerOrdersQueryKey(storeId), { page, limit }] as const;
 
-export function useSellerOrders(liveId: string) {
+export function useSellerOrders(storeId: string, page: number, limit: number, enabled = true) {
   return useQuery({
-    queryKey: sellerOrdersQueryKey(liveId),
-    queryFn: ({ signal }) => sellerOrdersApi.list(liveId, signal),
-    enabled: Boolean(liveId),
+    queryKey: sellerOrdersPageQueryKey(storeId, page, limit),
+    queryFn: ({ signal }) => sellerOrdersApi.list(storeId, page, limit, signal),
+    enabled: Boolean(storeId) && enabled,
   });
 }
 
-export function useMarkOrderPaid(liveId: string) {
+export function useSellerOrder(storeId: string, orderId: string | undefined) {
+  return useQuery({
+    queryKey: [...sellerOrdersQueryKey(storeId), "detail", orderId],
+    queryFn: ({ signal }) => sellerOrdersApi.get(storeId, orderId!, signal),
+    enabled: Boolean(storeId && orderId),
+  });
+}
+
+export function useMarkOrderPaid(storeId: string) {
   const queryClient = useQueryClient();
-  const queryKey = sellerOrdersQueryKey(liveId);
+  const queryKey = sellerOrdersQueryKey(storeId);
 
   return useMutation({
-    mutationFn: (orderId: string) => sellerOrdersApi.markPaid(orderId, { paymentStatus: "PAID" }),
-    onSuccess: async (updatedOrder) => {
-      queryClient.setQueryData<SellerOrder[]>(queryKey, (orders) =>
-        orders?.map((order) => order.id === updatedOrder.id ? updatedOrder : order),
-      );
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+    mutationFn: (orderId: string) => sellerOrdersApi.markPaid(storeId, orderId, { paymentStatus: "PAID" }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey });
     },
   });
 }
 
 export function useExportOrdersCsv() {
   return useMutation({
-    mutationFn: (liveId: string) => sellerOrdersApi.exportCsv(liveId),
+    mutationFn: (storeId: string) => sellerOrdersApi.exportCsv(storeId),
   });
 }

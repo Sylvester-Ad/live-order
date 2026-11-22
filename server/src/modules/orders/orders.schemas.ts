@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { mobileMoneyProviderSchema } from "../creators/mobile-money.schemas.js";
+import { paginationMetadataSchema } from "../../shared/utils/pagination.js";
 
 export const orderIdempotencyKeySchema = z.uuid().transform((key) => key.toLowerCase());
 
@@ -47,6 +48,18 @@ export const orderResponseSchema = z.object({
       selectedOptions: z.unknown().nullable(),
     }),
   ),
+});
+
+export const storeOrderResponseSchema = orderResponseSchema
+  .omit({ liveId: true })
+  .extend({ storeId: z.string() });
+export const paginatedOrderListSchema = z.object({
+  data: z.array(orderResponseSchema),
+  pagination: paginationMetadataSchema,
+});
+export const paginatedStoreOrderListSchema = z.object({
+  data: z.array(storeOrderResponseSchema),
+  pagination: paginationMetadataSchema,
 });
 
 export type OrderResponse = z.infer<typeof orderResponseSchema>;

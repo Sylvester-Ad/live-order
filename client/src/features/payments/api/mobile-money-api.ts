@@ -6,10 +6,10 @@ export type MobileMoneySettings = components["schemas"]["MobileMoneySettingsResp
 export type UpdateMobileMoneySettingsInput = components["schemas"]["UpdateMobileMoneySettingsRequest"];
 
 export const mobileMoneyApi = {
-  getSettings(signal?: AbortSignal) {
-    return api.get<MobileMoneySettings | null>("/v1/creator/mobile-money", { signal });
+  getSettings(storeId: string, signal?: AbortSignal) {
+    return api.get<MobileMoneySettings | null>(`/v1/stores/${encodeURIComponent(storeId)}/mobile-money`, { signal });
   },
-  saveSettings(input: UpdateMobileMoneySettingsInput) {
-    return api.put<MobileMoneySettings>("/v1/creator/mobile-money", input);
+  saveSettings(storeId: string, input: UpdateMobileMoneySettingsInput) {
+    return api.put<MobileMoneySettings>(`/v1/stores/${encodeURIComponent(storeId)}/mobile-money`, input);
   },
 };

@@ -50,7 +50,7 @@ describe("Idempotent product image uploads API", () => {
     liveId = live.body.data.id;
 
     const product = await prisma.product.create({
-      data: { liveId, name: "Test product", price: 2500 },
+      data: { storeId: liveId, name: "Test product", price: 2500 },
     });
     productId = product.id;
   });
@@ -229,7 +229,7 @@ describe("Idempotent product image uploads API", () => {
     const key = randomUUID();
     await uploadRequest(key);
     const otherProduct = await prisma.product.create({
-      data: { liveId, name: "Other product", price: 2500 },
+      data: { storeId: liveId, name: "Other product", price: 2500 },
     });
 
     const response = await uploadRequest(key, png, liveId, otherProduct.id);
@@ -243,11 +243,11 @@ describe("Idempotent product image uploads API", () => {
   it("conflicts when a key is reused under a different Live owned by the creator", async () => {
     const key = randomUUID();
     await uploadRequest(key);
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: { creatorId, name: "Other Live", slug: `other-${randomUUID()}` },
     });
     const otherProduct = await prisma.product.create({
-      data: { liveId: otherLive.id, name: "Other product", price: 2500 },
+      data: { storeId: otherLive.id, name: "Other product", price: 2500 },
     });
 
     const response = await uploadRequest(key, png, otherLive.id, otherProduct.id);
@@ -267,11 +267,11 @@ describe("Idempotent product image uploads API", () => {
     });
     const otherLogin = await request(app).post("/api/v1/creator/access").send({ accessCode: otherCode });
     const otherCookie = otherLogin.headers["set-cookie"][0].split(";")[0];
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: { creatorId: otherCreator.id, name: "Other Live", slug: `other-${randomUUID()}` },
     });
     const otherProduct = await prisma.product.create({
-      data: { liveId: otherLive.id, name: "Other product", price: 2500 },
+      data: { storeId: otherLive.id, name: "Other product", price: 2500 },
     });
 
     const response = await uploadRequest(key, png, otherLive.id, otherProduct.id, otherCookie);
@@ -482,11 +482,11 @@ describe("Idempotent product image uploads API", () => {
     const otherCreator = await prisma.creator.create({
       data: { name: "Other Creator", accessCodeHash: await hashAccessCode(otherCreatorCode) },
     });
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: { creatorId: otherCreator.id, name: "Other Live", slug: `other-${randomUUID()}` },
     });
     const otherProduct = await prisma.product.create({
-      data: { liveId: otherLive.id, name: "Other product", price: 2500 },
+      data: { storeId: otherLive.id, name: "Other product", price: 2500 },
     });
     const otherLogin = await request(app)
       .post("/api/v1/creator/access")

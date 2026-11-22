@@ -6,7 +6,7 @@ import { Card, CardContent } from "../../../components/ui/card";
 import { StatusBadge } from "../../../components/ui/status-badge";
 import { buttonClassName } from "../../../components/ui/button-styles";
 import { formatPesewas } from "../../../lib/format-money";
-import type { Live } from "../../lives/api/lives-api";
+import type { Store } from "../../lives/api/lives-api";
 import type { SellerOrder } from "../api/seller-orders-api";
 import { OrderProductThumbnail } from "./order-product-thumbnail";
 
@@ -21,12 +21,12 @@ function optionLabels(value: unknown) {
   return Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
 }
 
-export function OrderDetails({ live, order, onBack, paymentAction }: { live: Live; order: SellerOrder; onBack: string; paymentAction?: ReactNode }) {
+export function OrderDetails({ store, order, onBack, paymentAction }: { store: Store; order: SellerOrder; onBack: string; paymentAction?: ReactNode }) {
   return (
     <>
       <Link className="mb-5 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900" to={onBack}>← All orders</Link>
       <PageHeader
-        description={`Placed ${dateLabel(order.createdAt)} for ${live.name}.`}
+        description={`Placed ${dateLabel(order.createdAt)} for ${store.name}.`}
         eyebrow="Order details"
         title={order.reference}
         action={<StatusBadge tone={order.paymentStatus === "PAID" ? "paid" : "pending"}>{order.paymentStatus === "PAID" ? "Paid" : "Unpaid"}</StatusBadge>}

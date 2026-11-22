@@ -5,6 +5,7 @@ import { AppError } from "../../shared/errors/app-error.js";
 import { createWithOrderReference } from "./order-reference.js";
 import type { CreateOrderInput } from "./orders.schemas.js";
 import { getImageStorage } from "../products/image-storage/index.js";
+import { createPaginationMetadata, type PaginationInput } from "../../shared/utils/pagination.js";
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -17,9 +18,9 @@ function stableJson(value: unknown): string {
   return serialized;
 }
 
-function fingerprintRequest(liveId: string, input: CreateOrderInput): string {
+function fingerprintRequest(storeId: string, input: CreateOrderInput): string {
   const normalized = {
-    liveId,
+    liveId: storeId,
     customerName: input.customerName,
     customerPhone: input.customerPhone,
     deliveryLocation: input.deliveryLocation,
@@ -53,24 +54,24 @@ async function findIdempotentOrder(idempotencyKey: string, requestFingerprint: s
 }
 
 export async function createOrder(
-  liveId: string,
+  storeId: string,
   input: CreateOrderInput,
   idempotencyKey?: string,
 ) {
-  const requestFingerprint = idempotencyKey ? fingerprintRequest(liveId, input) : undefined;
+  const requestFingerprint = idempotencyKey ? fingerprintRequest(storeId, input) : undefined;
 
   if (idempotencyKey && requestFingerprint) {
     const previousOrder = await findIdempotentOrder(idempotencyKey, requestFingerprint);
     if (previousOrder) return previousOrder;
   }
 
-  const liveState = await prisma.live.findUnique({
-    where: { id: liveId },
+  const storeState = await prisma.store.findUnique({
+    where: { id: storeId },
     select: { id: true, status: true },
   });
 
-  if (!liveState) throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
-  if (liveState.status !== "ACTIVE") {
+  if (!storeState) throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
+  if (storeState.status !== "PUBLISHED") {
     throw new AppError(409, "LIVE_NOT_ACTIVE", "This Live is not accepting orders");
   }
 
@@ -88,13 +89,13 @@ export async function createOrder(
       // database predicate is the concurrency guard; a stale read cannot oversell.
       for (const [productId, quantity] of requestedQuantities) {
         const changed = await tx.product.updateMany({
-          where: { id: productId, liveId, isDeleting: false, stockQuantity: { gte: quantity } },
+          where: { id: productId, storeId, isDeleting: false, stockQuantity: { gte: quantity } },
           data: { stockQuantity: { decrement: quantity } },
         });
 
         if (changed.count === 0) {
           const product = await tx.product.findFirst({
-            where: { id: productId, liveId },
+            where: { id: productId, storeId },
             select: { id: true, isDeleting: true },
           });
           if (!product) {
@@ -107,26 +108,25 @@ export async function createOrder(
         }
       }
 
-      const live = await tx.live.findUnique({
-        where: { id: liveId },
+      const store = await tx.store.findUnique({
+        where: { id: storeId },
         select: {
           id: true,
-          creatorId: true,
           status: true,
         },
       });
 
-      if (!live) {
+      if (!store) {
         throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
       }
 
-      // Recheck in the transaction in case the Live ended after preflight.
-      if (live.status !== "ACTIVE") {
+      // Recheck in the transaction in case the Store was unpublished after preflight.
+      if (store.status !== "PUBLISHED") {
         throw new AppError(409, "LIVE_NOT_ACTIVE", "This Live is not accepting orders");
       }
 
-      const mobileMoneySettings = await tx.creatorMobileMoneySettings.findUnique({
-        where: { creatorId: live.creatorId },
+      const mobileMoneySettings = await tx.storeMobileMoneySettings.findUnique({
+        where: { storeId: store.id },
         select: {
           provider: true,
           mobileMoneyNumber: true,
@@ -136,7 +136,7 @@ export async function createOrder(
       });
 
       const products = await tx.product.findMany({
-        where: { id: { in: [...requestedQuantities.keys()] }, liveId: live.id },
+        where: { id: { in: [...requestedQuantities.keys()] }, storeId: store.id },
         select: {
           id: true,
           name: true,
@@ -199,7 +199,7 @@ export async function createOrder(
 
       return tx.order.create({
         data: {
-          liveId: live.id,
+          storeId: store.id,
           reference,
           ...(idempotencyKey && requestFingerprint && {
             idempotencyKey,
@@ -274,10 +274,10 @@ function validateOptionSelection(options: unknown, selection: Record<string, unk
   }
 }
 
-export async function listOrders(creatorId: string, liveId: string) {
-  const live = await prisma.live.findFirst({
+export async function listOrders(creatorId: string, storeId: string, pagination?: PaginationInput) {
+  const store = await prisma.store.findFirst({
     where: {
-      id: liveId,
+      id: storeId,
       creatorId,
     },
     select: {
@@ -285,31 +285,53 @@ export async function listOrders(creatorId: string, liveId: string) {
     },
   });
 
-  if (!live) {
+  if (!store) {
     throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
   }
 
-  return prisma.order.findMany({
+  const where = { storeId: store.id };
+  const orderBy = [{ createdAt: "desc" as const }, { id: "desc" as const }];
+  if (!pagination) {
+    return prisma.order.findMany({ where, orderBy, include: { items: true } });
+  }
+
+  const [total, data] = await Promise.all([
+    prisma.order.count({ where }),
+    prisma.order.findMany({
+      where,
+      orderBy,
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+      include: { items: true },
+    }),
+  ]);
+  return { data, pagination: createPaginationMetadata(pagination.page, pagination.limit, total) };
+}
+
+export async function getOrder(creatorId: string, storeId: string, orderId: string) {
+  const order = await prisma.order.findFirst({
     where: {
-      liveId: live.id,
+      id: orderId,
+      storeId,
+      store: { creatorId },
     },
-    orderBy: {
-      createdAt: "desc",
-    },
-    include: {
-      items: true,
-    },
+    include: { items: true },
   });
+
+  if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  return order;
 }
 
 export async function markOrderAsPaid(
   creatorId: string,
   orderId: string,
+  storeId?: string,
 ) {
   const order = await prisma.order.findFirst({
     where: {
       id: orderId,
-      live: {
+      ...(storeId !== undefined && { storeId }),
+      store: {
         creatorId,
       },
     },
@@ -341,10 +363,10 @@ export async function markOrderAsPaid(
   });
 }
 
-export async function exportOrders(creatorId: string, liveId: string) {
-  const live = await prisma.live.findFirst({
+export async function exportOrders(creatorId: string, storeId: string) {
+  const store = await prisma.store.findFirst({
     where: {
-      id: liveId,
+      id: storeId,
       creatorId,
     },
     select: {
@@ -353,13 +375,13 @@ export async function exportOrders(creatorId: string, liveId: string) {
     },
   });
 
-  if (!live) {
+  if (!store) {
     throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
   }
 
   const orders = await prisma.order.findMany({
     where: {
-      liveId: live.id,
+      storeId: store.id,
     },
     orderBy: {
       createdAt: "desc",
@@ -370,7 +392,7 @@ export async function exportOrders(creatorId: string, liveId: string) {
   });
 
   return {
-    live,
+    live: store,
     orders,
   };
 }

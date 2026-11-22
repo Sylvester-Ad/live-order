@@ -14,7 +14,7 @@ import type { CreateCustomerOrderInput, CreatedCustomerOrder } from "../../order
 import { clearPublicOrderIdempotencyKey, getPublicOrderIdempotencyKey } from "../../orders/lib/public-order-idempotency";
 import { useCreateCustomerOrder } from "../../orders/hooks/use-create-customer-order";
 import { addProductToCart, productQuantityInCart, removeCartLine, setCartLineQuantity, type PublicOrderCartLine } from "../lib/public-order-cart";
-import type { PublicLive } from "../api/public-live-api";
+import type { PublicStorefront } from "../api/public-live-api";
 import { usePublicLive } from "../hooks/use-public-live";
 
 type ContactFields = { customerName: string; customerPhone: string; deliveryLocation: string };
@@ -83,11 +83,11 @@ export function PublicLivePage() {
     };
   }, [cartOpen]);
 
-  if (liveQuery.isPending) return <LoadingState label="Loading this Live…" />;
+  if (liveQuery.isPending) return <LoadingState label="Loading this store…" />;
   if (liveQuery.error instanceof ApiError && liveQuery.error.status === 404) {
-    return <Notice title="This Live isn't available right now." tone="info">It may have ended, or the seller's link may have changed.</Notice>;
+    return <Notice title="This store isn't available right now." tone="info">The seller may have taken it offline, or the link may have changed.</Notice>;
   }
-  if (liveQuery.isError) return <RequestFailure label="We couldn't load this Live." onRetry={() => void liveQuery.refetch()} />;
+  if (liveQuery.isError) return <RequestFailure label="We couldn't load this store." onRetry={() => void liveQuery.refetch()} />;
 
   const live = liveQuery.data;
   const productById = new Map(live.products.map((product) => [product.id, product]));
@@ -102,9 +102,9 @@ export function PublicLivePage() {
     : placeOrder.error instanceof ApiError && placeOrder.error.code === "INVALID_PRODUCT_OPTIONS"
       ? "One of the selected options is no longer available. Review your choices and try again."
       : placeOrder.error instanceof ApiError && placeOrder.error.code === "INVALID_PRODUCT"
-        ? "A product in this order is no longer available. Refresh the Live and review your order."
-        : placeOrder.error instanceof ApiError && placeOrder.error.code === "LIVE_NOT_ACTIVE"
-          ? "This Live is no longer accepting orders."
+        ? "A product in this order is no longer available. Refresh the store and review your order."
+        : placeOrder.error instanceof ApiError && placeOrder.error.code === "STORE_NOT_PUBLISHED"
+          ? "This store is no longer accepting orders."
           : placeOrder.error instanceof ApiError && placeOrder.error.code === "IDEMPOTENCY_KEY_REUSED"
             ? "We couldn't safely match this retry to the earlier submission. The earlier order may have been received; please contact the seller before placing another order."
             : placeOrder.error instanceof TransportError || (placeOrder.error instanceof ApiError && placeOrder.error.status >= 500)
@@ -116,7 +116,7 @@ export function PublicLivePage() {
     if (!uncertainSubmission) placeOrder.reset();
   }
 
-  function addToOrder(product: PublicLive["products"][number]) {
+  function addToOrder(product: PublicStorefront["products"][number]) {
     const requestedQuantity = addQuantities[product.id] ?? 1;
     const selectedOptions = selections[product.id] ?? {};
     const optionGroups = readProductOptionGroups(product.options);
@@ -152,7 +152,7 @@ export function PublicLivePage() {
     if (uncertainSubmission && pendingSubmission.current?.liveSlug === slug) {
       if (!uncertainConflict) {
         placeOrder.mutate({
-          liveId: live.id,
+          storeId: live.id,
           input: pendingSubmission.current.input,
           idempotencyKey: pendingSubmission.current.key,
         }, {
@@ -202,7 +202,7 @@ export function PublicLivePage() {
     const submission = { liveSlug: slug, key: storedKey, input };
     pendingSubmission.current = submission;
     placeOrder.mutate(
-      { liveId: live.id, input, idempotencyKey: storedKey },
+      { storeId: live.id, input, idempotencyKey: storedKey },
       {
         onSuccess: handleSubmissionSuccess,
         onError: handleSubmissionError,
@@ -359,7 +359,7 @@ export function PublicLivePage() {
   );
 }
 
-function OrderConfirmation({ live, order, onContinueShopping, refreshingAvailability }: { live: PublicLive; order: CreatedCustomerOrder; onContinueShopping(): void; refreshingAvailability: boolean }) {
+function OrderConfirmation({ live, order, onContinueShopping, refreshingAvailability }: { live: PublicStorefront; order: CreatedCustomerOrder; onContinueShopping(): void; refreshingAvailability: boolean }) {
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const paymentProvider = order.mobileMoneyProvider
     ? {

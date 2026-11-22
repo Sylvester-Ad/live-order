@@ -7,6 +7,8 @@ import { randomUUID } from "node:crypto";
 const requiredTables = [
   "Creator",
   "CreatorSession",
+  "CreatorAuthToken",
+  "CreatorPasswordResetToken",
   "Live",
   "Product",
   "ProductImage",
@@ -22,8 +24,10 @@ type ForeignKeyViolation = { table: string; rowid: number | null; parent: string
 // These signature columns cover the fields needed to identify the current
 // application schema without duplicating Prisma's complete model definitions.
 const requiredColumns: Record<(typeof requiredTables)[number], readonly string[]> = {
-  Creator: ["id", "name", "accessCodeHash"],
+  Creator: ["id", "name", "accessCodeHash", "email", "passwordHash", "emailVerifiedAt"],
   CreatorSession: ["id", "creatorId", "tokenHash", "expiresAt"],
+  CreatorAuthToken: ["id", "creatorId", "pendingEmail", "pendingPasswordHash", "tokenHash", "purpose", "expiresAt"],
+  CreatorPasswordResetToken: ["id", "creatorId", "tokenHash", "expiresAt"],
   Live: ["id", "creatorId", "name", "slug", "status"],
   Product: ["id", "liveId", "name", "price", "stockQuantity"],
   ProductImage: ["id", "productId", "url", "storageId", "provider"],

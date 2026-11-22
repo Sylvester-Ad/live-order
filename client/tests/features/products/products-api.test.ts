@@ -28,7 +28,7 @@ describe("product image API", () => {
       .resolves.toEqual(uploadResult);
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/v1/lives/live-1/products/product-1/images");
+    expect(String(url)).toContain("/v1/stores/live-1/products/product-1/images");
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("Idempotency-Key")).toBe("upload-key");
     expect(init?.body).toBeInstanceOf(FormData);
@@ -55,10 +55,10 @@ describe("product image API", () => {
     await expect(productsApi.getImageUploadStatus("live-1", pending[0].idempotencyKey)).resolves.toEqual(status);
 
     expect(String(fetchMock.mock.calls[0][0])).toContain(
-      "/v1/lives/live-1/products/product-1/image-uploads/pending",
+      "/v1/stores/live-1/products/product-1/image-uploads/pending",
     );
     expect(String(fetchMock.mock.calls[1][0])).toContain(
-      `/v1/lives/live-1/product-image-uploads/${pending[0].idempotencyKey}`,
+      `/v1/stores/live-1/product-image-uploads/${pending[0].idempotencyKey}`,
     );
   });
 
@@ -75,11 +75,11 @@ describe("product image API", () => {
       .resolves.toEqual(updatedProduct);
 
     expect(String(fetchMock.mock.calls[0][0])).toContain(
-      "/v1/lives/live-1/products/product-1/images/image-1/primary",
+      "/v1/stores/live-1/products/product-1/images/image-1/primary",
     );
     expect(fetchMock.mock.calls[0][1]?.method).toBe("PATCH");
     expect(String(fetchMock.mock.calls[1][0])).toContain(
-      "/v1/lives/live-1/products/product-1/images/image-2",
+      "/v1/stores/live-1/products/product-1/images/image-2",
     );
     expect(fetchMock.mock.calls[1][1]?.method).toBe("DELETE");
   });

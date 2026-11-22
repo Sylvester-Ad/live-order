@@ -108,7 +108,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw apiErrorFromPayload(response.status, payload);
   }
 
-  if (isRecord(payload) && "data" in payload) {
+  if (isRecord(payload) && "data" in payload && !("pagination" in payload)) {
     return payload.data as T;
   }
 

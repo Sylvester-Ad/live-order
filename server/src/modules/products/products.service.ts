@@ -12,10 +12,11 @@ import {
   activeProductImagesInclude,
   productWithImages,
 } from "./product-images.service.js";
+import { createPaginationMetadata, type PaginationInput } from "../../shared/utils/pagination.js";
 
 export async function createProduct(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   input: CreateProductInput,
   idempotencyKey: string,
 ) {
@@ -26,20 +27,20 @@ export async function createProduct(
     options: input.options ?? null,
   };
   const requestFingerprint = createHash("sha256")
-    .update(stableJson({ creatorId, liveId, ...normalizedInput }))
+    .update(stableJson({ creatorId, liveId: storeId, ...normalizedInput }))
     .digest("hex");
 
   const existingProduct = await findIdempotentProduct(
     idempotencyKey,
     creatorId,
-    liveId,
+    storeId,
     requestFingerprint,
   );
   if (existingProduct) return existingProduct;
 
-  const live = await prisma.live.findFirst({
+  const store = await prisma.store.findFirst({
     where: {
-      id: liveId,
+      id: storeId,
       creatorId,
     },
     select: {
@@ -47,7 +48,7 @@ export async function createProduct(
     },
   });
 
-  if (!live) {
+  if (!store) {
     throw new AppError(
       404,
       "LIVE_NOT_FOUND",
@@ -59,7 +60,7 @@ export async function createProduct(
     const product = await prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
-          liveId,
+          storeId,
           name: normalizedInput.name,
           price: input.price,
           stockQuantity: normalizedInput.stockQuantity,
@@ -73,7 +74,7 @@ export async function createProduct(
         data: {
           idempotencyKey,
           creatorId,
-          liveId,
+          storeId,
           requestFingerprint,
           productId: created.id,
         },
@@ -91,7 +92,7 @@ export async function createProduct(
       const committedProduct = await findIdempotentProduct(
         idempotencyKey,
         creatorId,
-        liveId,
+        storeId,
         requestFingerprint,
       );
       if (committedProduct) return committedProduct;
@@ -122,7 +123,7 @@ function stableJson(value: unknown): string {
 async function findIdempotentProduct(
   idempotencyKey: string,
   creatorId: string,
-  liveId: string,
+  storeId: string,
   requestFingerprint: string,
 ) {
   const creationRequest = await prisma.productCreationRequest.findUnique({
@@ -135,7 +136,7 @@ async function findIdempotentProduct(
   if (!creationRequest) return null;
   if (
     creationRequest.creatorId !== creatorId ||
-    creationRequest.liveId !== liveId ||
+    creationRequest.storeId !== storeId ||
     creationRequest.requestFingerprint !== requestFingerprint
   ) {
     throw new AppError(
@@ -155,10 +156,10 @@ async function findIdempotentProduct(
   return productWithImages(creationRequest.product);
 }
 
-export async function listProducts(creatorId: string, liveId: string) {
-  const live = await prisma.live.findFirst({
+export async function listProducts(creatorId: string, storeId: string, pagination?: PaginationInput) {
+  const store = await prisma.store.findFirst({
     where: {
-      id: liveId,
+      id: storeId,
       creatorId,
     },
     select: {
@@ -166,32 +167,53 @@ export async function listProducts(creatorId: string, liveId: string) {
     },
   });
 
-  if (!live) {
+  if (!store) {
     throw new AppError(404, "LIVE_NOT_FOUND", "Live not found");
   }
 
-  return prisma.product.findMany({
-    where: {
-      liveId: live.id,
-    },
-    orderBy: {
-      createdAt: "asc",
-    },
+  const where = { storeId: store.id };
+  const orderBy = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+  if (!pagination) {
+    return prisma.product.findMany({ where, orderBy, include: activeProductImagesInclude })
+      .then((products) => products.map(productWithImages));
+  }
+
+  const [total, products] = await Promise.all([
+    prisma.product.count({ where }),
+    prisma.product.findMany({
+      where,
+      orderBy,
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+      include: activeProductImagesInclude,
+    }),
+  ]);
+  return {
+    data: products.map(productWithImages),
+    pagination: createPaginationMetadata(pagination.page, pagination.limit, total),
+  };
+}
+
+export async function getProduct(creatorId: string, storeId: string, productId: string) {
+  const product = await prisma.product.findFirst({
+    where: { id: productId, storeId, store: { creatorId } },
     include: activeProductImagesInclude,
-  }).then((products) => products.map(productWithImages));
+  });
+  if (!product) throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+  return productWithImages(product);
 }
 
 export async function updateProduct(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
   input: UpdateProductInput,
 ) {
   const product = await prisma.product.findFirst({
     where: {
       id: productId,
-      liveId,
-      live: { creatorId },
+      storeId,
+      store: { creatorId },
     },
     select: { id: true },
   });
@@ -228,16 +250,16 @@ function isForeignKeyConstraintError(error: unknown): boolean {
 
 export async function deleteProduct(
   creatorId: string,
-  liveId: string,
+  storeId: string,
   productId: string,
 ): Promise<void> {
   const images = await prisma.$transaction(async (tx) => {
     const deletionGate = await tx.product.updateMany({
       where: {
         id: productId,
-        liveId,
+        storeId,
         isDeleting: false,
-        live: { creatorId },
+        store: { creatorId },
       },
       data: { isDeleting: true },
     });
@@ -246,8 +268,8 @@ export async function deleteProduct(
       const product = await tx.product.findFirst({
         where: {
           id: productId,
-          liveId,
-          live: { creatorId },
+          storeId,
+          store: { creatorId },
         },
         select: { id: true },
       });
@@ -262,8 +284,8 @@ export async function deleteProduct(
     const product = await tx.product.findFirst({
       where: {
         id: productId,
-        liveId,
-        live: { creatorId },
+        storeId,
+        store: { creatorId },
       },
       select: { id: true, images: { select: { storageId: true, provider: true } } },
     });

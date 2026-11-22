@@ -33,12 +33,12 @@ describe("Order CSV export API", () => {
     expect(setCookie).toBeDefined();
     cookie = setCookie[0].split(";")[0];
 
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: {
         creatorId: creator.id,
         name: "Fashion Live",
         slug: `fashion-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
 
@@ -46,7 +46,7 @@ describe("Order CSV export API", () => {
 
     const product = await prisma.product.create({
       data: {
-        liveId,
+        storeId: liveId,
         name: "Cotton Shirt",
         price: 12500,
       },
@@ -62,7 +62,7 @@ describe("Order CSV export API", () => {
   it("exports order details and item totals as CSV", async () => {
     await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         customerName: "Ama Mensah",
         customerPhone: "0241234567",
         deliveryLocation: "Accra",
@@ -108,10 +108,37 @@ describe("Order CSV export API", () => {
     expect(response.text).toContain('"Order Reference"');
   });
 
+  it("exports the complete history independently of listing page size", async () => {
+    for (let index = 0; index < 23; index += 1) {
+      await prisma.order.create({
+        data: {
+          storeId: liveId,
+          reference: `ORD-EXPORT-${String(index).padStart(3, "0")}`,
+          customerName: `Customer ${index}`,
+          customerPhone: "0241234567",
+          deliveryLocation: "Accra",
+          totalAmount: 12500,
+          items: {
+            create: { productId, productName: "Cotton Shirt", unitPrice: 12500, quantity: 1 },
+          },
+        },
+      });
+    }
+
+    const response = await request(app)
+      .get(`/api/v1/stores/${liveId}/orders/export`)
+      .set("Cookie", cookie)
+      .expect(200);
+
+    expect(response.text).toContain('"ORD-EXPORT-000"');
+    expect(response.text).toContain('"ORD-EXPORT-022"');
+    expect((response.text.match(/ORD-EXPORT-/g) ?? []).length).toBe(23);
+  });
+
   it("escapes commas, quotes, and line breaks in customer and product fields", async () => {
     await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         reference: "ORD-0000000000000006",
         customerName: 'Ama, "The Seller"',
         customerPhone: "0241234567",
@@ -156,12 +183,12 @@ describe("Order CSV export API", () => {
       },
     });
 
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: {
         creatorId: otherCreator.id,
         name: "Private Live",
         slug: `private-${randomUUID()}`,
-        status: "ACTIVE",
+        status: "PUBLISHED",
       },
     });
 

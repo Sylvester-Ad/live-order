@@ -58,12 +58,12 @@ describe("Product image removal foundation", () => {
     const login = await request(app).post("/api/v1/creator/access").send({ accessCode });
     expect(login.status).toBe(200);
     cookie = login.headers["set-cookie"][0].split(";")[0];
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: { creatorId, name: "Test Live", slug: `test-${randomUUID()}` },
     });
     liveId = live.id;
     const product = await prisma.product.create({
-      data: { liveId, name: "Test product", price: 2500 },
+      data: { storeId: liveId, name: "Test product", price: 2500 },
     });
     productId = product.id;
   });
@@ -101,7 +101,7 @@ describe("Product image removal foundation", () => {
         data: {
           idempotencyKey: randomUUID(),
           creatorId,
-          liveId,
+          storeId: liveId,
           productId,
           fileFingerprint: fingerprint(randomUUID()),
           status: "COMPLETED",
@@ -186,7 +186,7 @@ describe("Product image removal foundation", () => {
     const image = await createImage({ isPrimary: true });
     const order = await prisma.order.create({
       data: {
-        liveId,
+        storeId: liveId,
         customerName: "Ama Mensah",
         customerPhone: "0241234567",
         deliveryLocation: "Accra",
@@ -260,7 +260,7 @@ describe("Product image removal foundation", () => {
   it("rejects images from another product and requests from another creator", async () => {
     const image = await createImage({ isPrimary: true });
     const otherProduct = await prisma.product.create({
-      data: { liveId, name: "Other product", price: 2500 },
+      data: { storeId: liveId, name: "Other product", price: 2500 },
     });
 
     const wrongProduct = await request(app)
@@ -273,7 +273,7 @@ describe("Product image removal foundation", () => {
     const otherCreator = await prisma.creator.create({
       data: { name: "Other creator", accessCodeHash: await hashAccessCode(accessCode) },
     });
-    await prisma.live.create({
+    await prisma.store.create({
       data: { creatorId: otherCreator.id, name: "Other live", slug: `other-${randomUUID()}` },
     });
     const login = await request(app).post("/api/v1/creator/access").send({ accessCode });

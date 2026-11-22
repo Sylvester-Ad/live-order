@@ -199,6 +199,94 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/api/v1/creator/register",
+  tags: ["Authentication"],
+  summary: "Register a seller account",
+  description: "Creates a pending Creator identity and sends an email verification link. Duplicate addresses receive the same generic response.",
+  request: { body: { required: true, content: jsonContent(schemaRef("SellerRegistrationRequest")) } },
+  responses: {
+    202: jsonResponse("If the details can be used, an email with next steps will be sent.", schemaRef("AuthActionResponse")),
+    400: errorResponse("Invalid registration input."),
+    429: errorResponse("Too many attempts."),
+    503: errorResponse("Email delivery is unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/claim",
+  tags: ["Authentication"],
+  summary: "Claim an existing seller account",
+  description: "Verifies an existing access code and stages email/password credentials against the same Creator. The access code remains valid until verification succeeds.",
+  request: { body: { required: true, content: jsonContent(schemaRef("SellerClaimRequest")) } },
+  responses: {
+    202: jsonResponse("If the details can be used, an email with next steps will be sent.", schemaRef("AuthActionResponse")),
+    400: errorResponse("Invalid claim input."),
+    429: errorResponse("Too many attempts."),
+    503: errorResponse("Email delivery is unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/verify-email",
+  tags: ["Authentication"],
+  summary: "Verify seller email",
+  description: "Consumes a single-use email verification token, activates the account, retires the prior access code, and sets an HTTP-only session cookie.",
+  request: { body: { required: true, content: jsonContent(schemaRef("EmailVerificationRequest")) } },
+  responses: {
+    200: jsonResponse("Email verified and seller signed in.", schemaRef("CreatorSuccessResponse")),
+    400: errorResponse("Verification link is invalid or expired."),
+    429: errorResponse("Too many attempts."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/password/login",
+  tags: ["Authentication"],
+  summary: "Sign in with email and password",
+  description: "Authenticates a verified seller and sets the existing HTTP-only session cookie. Errors do not reveal whether an email exists.",
+  request: { body: { required: true, content: jsonContent(schemaRef("PasswordLoginRequest")) } },
+  responses: {
+    200: jsonResponse("Seller authenticated successfully.", schemaRef("CreatorSuccessResponse")),
+    400: errorResponse("Invalid login input."),
+    401: errorResponse("Email or password is incorrect."),
+    429: errorResponse("Too many attempts."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/password/forgot",
+  tags: ["Authentication"],
+  summary: "Request a password reset",
+  description: "Sends a single-use password reset link when the account exists. The response is generic to avoid account enumeration.",
+  request: { body: { required: true, content: jsonContent(schemaRef("EmailRequest")) } },
+  responses: {
+    202: jsonResponse("If the details can be used, an email with next steps will be sent.", schemaRef("AuthActionResponse")),
+    400: errorResponse("Invalid email input."),
+    429: errorResponse("Too many attempts."),
+    503: errorResponse("Email delivery is unavailable."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/creator/password/reset",
+  tags: ["Authentication"],
+  summary: "Reset a seller password",
+  description: "Consumes an expiring single-use reset token and revokes every active session for the seller.",
+  request: { body: { required: true, content: jsonContent(schemaRef("PasswordResetRequest")) } },
+  responses: {
+    204: { description: "Password updated and sessions revoked." },
+    400: errorResponse("Invalid input or expired reset link."),
+    429: errorResponse("Too many attempts."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/v1/creator/access",
   tags: ["Authentication"],
   summary: "Creator login",
@@ -244,7 +332,7 @@ registry.registerPath({
   path: "/api/v1/creator/mobile-money",
   tags: ["Creator settings"],
   summary: "Get Mobile Money settings",
-  description: "Returns the authenticated creator's default Mobile Money account, or null when none has been saved. This endpoint does not expose another creator's settings.",
+  description: "Returns the authenticated creator's legacy Mobile Money account, or null when none has been saved. This is a temporary compatibility endpoint; Store-managed settings are returned by the Store-scoped endpoint.",
   security: [{ CreatorSession: [] }],
   responses: {
     200: jsonResponse("Creator Mobile Money settings returned.", schemaRef("MobileMoneySettingsSuccessResponse")),
@@ -257,7 +345,7 @@ registry.registerPath({
   path: "/api/v1/creator/mobile-money",
   tags: ["Creator settings"],
   summary: "Save Mobile Money settings",
-  description: "Creates or updates the authenticated creator's default Mobile Money account, shared across all their Lives. Number input is normalized to Ghana's local ten-digit format. Disabling Mobile Money preserves the saved account but excludes it from new order payment instructions.",
+  description: "Creates or updates the authenticated creator's legacy Mobile Money account. Store settings still marked LEGACY_INHERITED are refreshed, and unconfigured Stores receive inherited settings; Store-managed settings are never overwritten. This is a temporary compatibility endpoint. Number input is normalized to Ghana's local ten-digit format.",
   security: [{ CreatorSession: [] }],
   request: {
     body: {
@@ -269,6 +357,43 @@ registry.registerPath({
     200: jsonResponse("Creator Mobile Money settings saved.", schemaRef("MobileMoneySettingsUpdateSuccessResponse")),
     400: errorResponse("Invalid provider, Ghanaian mobile number, account name, or enabled status."),
     401: errorResponse("Authentication is required or the session has expired."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/stores/{storeId}/mobile-money",
+  tags: ["Stores", "Store settings"],
+  summary: "Get Store Mobile Money settings",
+  description: "Returns Mobile Money settings for the Store owned by the authenticated Creator, or null when none are configured. Store-specific settings are independent of other Stores owned by the Creator.",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ storeId: z.string() }) },
+  responses: {
+    200: jsonResponse("Store Mobile Money settings returned.", schemaRef("MobileMoneySettingsSuccessResponse")),
+    401: errorResponse("Authentication is required or the session has expired."),
+    404: errorResponse("Store not found."),
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/v1/stores/{storeId}/mobile-money",
+  tags: ["Stores", "Store settings"],
+  summary: "Save Store Mobile Money settings",
+  description: "Creates or updates settings for the Store owned by the authenticated Creator and marks them Store-managed. Disabling Mobile Money preserves the saved details but excludes them from new order payment instructions.",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ storeId: z.string() }),
+    body: {
+      required: true,
+      content: jsonContent(schemaRef("UpdateMobileMoneySettingsRequest")),
+    },
+  },
+  responses: {
+    200: jsonResponse("Store Mobile Money settings saved.", schemaRef("MobileMoneySettingsUpdateSuccessResponse")),
+    400: errorResponse("Invalid provider, Ghanaian mobile number, account name, or enabled status."),
+    401: errorResponse("Authentication is required or the session has expired."),
+    404: errorResponse("Store not found."),
   },
 });
 
@@ -394,7 +519,7 @@ registry.registerPath({
   tags: ["Products"],
   summary: "List products for a Live",
   description:
-    "Returns products associated with a Live owned by the authenticated creator, oldest first. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.",
+    "Returns products associated with a Live owned by the authenticated creator, oldest first. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Each product includes active images ordered primary first, then by creation time and ID; the singular image field aliases the primary image.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -402,15 +527,36 @@ registry.registerPath({
         description: "ID of the Live whose products should be returned.",
       }),
     }),
+    query: z.object({
+      page: z.coerce.number().int().min(1).optional().openapi({ description: "One-based page number. Defaults to 1." }),
+      limit: z.coerce.number().int().min(1).max(100).optional().openapi({ description: "Page size, up to 100. Defaults to 20." }),
+    }),
   },
   responses: {
     200: jsonResponse(
-      "Products returned successfully.",
-      schemaRef("ProductsSuccessResponse"),
+      "Products returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata.",
+      {
+        oneOf: [schemaRef("ProductsSuccessResponse"), schemaRef("PaginatedProductsSuccessResponse")],
+      },
     ),
     400: errorResponse("Invalid Live ID."),
     401: errorResponse("Authentication is required."),
     404: errorResponse("Live not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/lives/{liveId}/products/{productId}",
+  tags: ["Products"],
+  summary: "Get a product",
+  description: "Returns a product and its active image gallery when it belongs to the selected Live and authenticated creator.",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ liveId: z.string(), productId: z.string() }) },
+  responses: {
+    200: jsonResponse("Product returned successfully.", schemaRef("ProductSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Product not found or not owned by the creator."),
   },
 });
 
@@ -550,7 +696,7 @@ registry.registerPath({
   tags: ["Orders"],
   summary: "List orders",
   description:
-    "Returns orders associated with a Live owned by the authenticated creator.",
+    "Returns orders associated with a Live owned by the authenticated creator. Existing callers that omit pagination parameters retain the legacy full-array response. Supplying page or limit returns a paginated envelope. Results are newest first with a stable secondary order.",
   security: [{ CreatorSession: [] }],
   request: {
     params: z.object({
@@ -558,11 +704,17 @@ registry.registerPath({
         description: "ID of the Live whose orders should be returned.",
       }),
     }),
+    query: z.object({
+      page: z.coerce.number().int().min(1).optional().openapi({ description: "One-based page number. Defaults to 1." }),
+      limit: z.coerce.number().int().min(1).max(100).optional().openapi({ description: "Page size, up to 100. Defaults to 20." }),
+    }),
   },
   responses: {
     200: jsonResponse(
-      "Orders returned successfully.",
-      schemaRef("OrdersSuccessResponse"),
+      "Orders returned successfully. Legacy requests without page or limit receive the full array; paginated requests receive page metadata.",
+      {
+        oneOf: [schemaRef("OrdersSuccessResponse"), schemaRef("PaginatedOrdersSuccessResponse")],
+      },
     ),
     400: errorResponse("Invalid Live ID."),
     401: errorResponse("Authentication is required."),
@@ -645,6 +797,87 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/stores/{storeId}",
+  tags: ["Stores"],
+  summary: "Get a Store",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ storeId: z.string() }) },
+  responses: {
+    200: jsonResponse("Store returned successfully.", schemaRef("StoreSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Store not found or not owned by the creator."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/stores/{storeId}",
+  tags: ["Stores"],
+  summary: "Update Store details",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ storeId: z.string() }),
+    body: { required: true, content: jsonContent(schemaRef("UpdateStoreDetailsRequest")) },
+  },
+  responses: {
+    200: jsonResponse("Store updated successfully.", schemaRef("StoreSuccessResponse")),
+    400: errorResponse("Invalid Store ID or request body."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Store not found or not owned by the creator."),
+  },
+});
+
+for (const [action, summary] of [["publish", "Publish a Store"], ["unpublish", "Unpublish a Store"]] as const) {
+  registry.registerPath({
+    method: "post",
+    path: `/api/v1/stores/{storeId}/${action}`,
+    tags: ["Stores"],
+    summary,
+    security: [{ CreatorSession: [] }],
+    request: { params: z.object({ storeId: z.string() }) },
+    responses: {
+      200: jsonResponse("Store publication status updated.", schemaRef("StoreSuccessResponse")),
+      401: errorResponse("Authentication is required."),
+      404: errorResponse("Store not found or not owned by the creator."),
+      409: errorResponse("Invalid Store publication transition."),
+    },
+  });
+}
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/stores/{storeId}/orders/{orderId}",
+  tags: ["Orders"],
+  summary: "Get a Store order",
+  security: [{ CreatorSession: [] }],
+  request: { params: z.object({ storeId: z.string(), orderId: z.string() }) },
+  responses: {
+    200: jsonResponse("Order returned successfully.", schemaRef("StoreOrderSuccessResponse")),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Order not found in this Store."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/stores/{storeId}/orders/{orderId}",
+  tags: ["Orders"],
+  summary: "Mark a Store order as paid",
+  security: [{ CreatorSession: [] }],
+  request: {
+    params: z.object({ storeId: z.string(), orderId: z.string() }),
+    body: { required: true, content: jsonContent(schemaRef("UpdateOrderRequest")) },
+  },
+  responses: {
+    200: jsonResponse("Order payment status updated.", schemaRef("StoreOrderSuccessResponse")),
+    400: errorResponse("Invalid order ID or request body."),
+    401: errorResponse("Authentication is required."),
+    404: errorResponse("Order not found in this Store."),
+  },
+});
+
 const generator = new OpenApiGeneratorV31(registry.definitions);
 
 export const openApiDocument = generator.generateDocument({
@@ -662,3 +895,60 @@ export const openApiDocument = generator.generateDocument({
     },
   ],
 });
+
+const storeSchemaNames: Record<string, string> = {
+  CreateLiveRequest: "CreateStoreRequest",
+  LiveSuccessResponse: "StoreSuccessResponse",
+  LivesSuccessResponse: "StoresSuccessResponse",
+  ProductSuccessResponse: "StoreProductSuccessResponse",
+  ProductsSuccessResponse: "StoreProductsSuccessResponse",
+  ProductImageUploadSuccessResponse: "StoreProductImageUploadSuccessResponse",
+  OrderSuccessResponse: "StoreOrderSuccessResponse",
+  OrdersSuccessResponse: "StoreOrdersSuccessResponse",
+  PaginatedProductsSuccessResponse: "PaginatedStoreProductsSuccessResponse",
+  PaginatedOrdersSuccessResponse: "PaginatedStoreOrdersSuccessResponse",
+  PublicLiveSuccessResponse: "PublicStoreSuccessResponse",
+};
+
+function storeOpenApiValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(storeOpenApiValue);
+  if (typeof value === "string") {
+    return value
+      .replace(/#\/components\/schemas\/([A-Za-z]+)/g, (reference, name: string) =>
+        `#/components/schemas/${storeSchemaNames[name] ?? name}`)
+      .replaceAll("Lives", "Stores")
+      .replaceAll("Live", "Store")
+      .replaceAll("liveId", "storeId");
+  }
+  if (typeof value !== "object" || value === null) return value;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    result[key === "liveId" ? "storeId" : key] = storeOpenApiValue(item);
+  }
+  return result;
+}
+
+openApiDocument.paths ??= {};
+for (const [livePath, storePath] of Object.entries({
+  "/api/v1/lives": "/api/v1/stores",
+  "/api/v1/lives/{liveId}/products": "/api/v1/stores/{storeId}/products",
+  "/api/v1/lives/{liveId}/products/{productId}": "/api/v1/stores/{storeId}/products/{productId}",
+  "/api/v1/lives/{liveId}/products/{productId}/image": "/api/v1/stores/{storeId}/products/{productId}/image",
+  "/api/v1/lives/{liveId}/products/{productId}/images": "/api/v1/stores/{storeId}/products/{productId}/images",
+  "/api/v1/lives/{liveId}/product-image-uploads/{idempotencyKey}": "/api/v1/stores/{storeId}/product-image-uploads/{idempotencyKey}",
+  "/api/v1/lives/{liveId}/products/{productId}/image-uploads/pending": "/api/v1/stores/{storeId}/products/{productId}/image-uploads/pending",
+  "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}/primary": "/api/v1/stores/{storeId}/products/{productId}/images/{imageId}/primary",
+  "/api/v1/lives/{liveId}/products/{productId}/images/{imageId}": "/api/v1/stores/{storeId}/products/{productId}/images/{imageId}",
+  "/api/v1/lives/{liveId}/orders": "/api/v1/stores/{storeId}/orders",
+  "/api/v1/lives/{liveId}/orders/export": "/api/v1/stores/{storeId}/orders/export",
+  "/api/v1/public/lives/{slug}": "/api/v1/public/stores/{slug}",
+})) {
+  const legacyPathItem = openApiDocument.paths[livePath];
+  if (!legacyPathItem) continue;
+  const cloned = storeOpenApiValue(legacyPathItem) as typeof legacyPathItem;
+  if (livePath === "/api/v1/lives") {
+    delete cloned.patch;
+  }
+  openApiDocument.paths[storePath] = cloned;
+}

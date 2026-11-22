@@ -23,12 +23,12 @@ describe("product image slot concurrency", () => {
       data: { name: "Test Creator", accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`) },
     });
     creatorId = creator.id;
-    const live = await prisma.live.create({
+    const live = await prisma.store.create({
       data: { creatorId, name: "Test Live", slug: `test-${randomUUID()}` },
     });
     liveId = live.id;
     const product = await prisma.product.create({
-      data: { liveId, name: "Test product", price: 2500 },
+      data: { storeId: liveId, name: "Test product", price: 2500 },
     });
     productId = product.id;
   });
@@ -41,7 +41,7 @@ describe("product image slot concurrency", () => {
     return {
       idempotencyKey: randomUUID(),
       creatorId,
-      liveId,
+      storeId: liveId,
       productId,
       fileFingerprint: fingerprint(randomUUID()),
       provider: "CLOUDINARY" as const,
@@ -54,7 +54,7 @@ describe("product image slot concurrency", () => {
       data: {
         idempotencyKey: randomUUID(),
         creatorId,
-        liveId,
+        storeId: liveId,
         productId,
         fileFingerprint: fingerprint("uploaded image"),
         status,
@@ -192,16 +192,16 @@ describe("product image slot concurrency", () => {
   });
 
   it("rejects a matching key reused for a different Live", async () => {
-    const otherLive = await prisma.live.create({
+    const otherLive = await prisma.store.create({
       data: { creatorId, name: "Other Live", slug: `test-${randomUUID()}` },
     });
 
-    await expectIdentityConflict({ liveId: otherLive.id });
+    await expectIdentityConflict({ storeId: otherLive.id });
   });
 
   it("rejects a matching key reused for a different product", async () => {
     const otherProduct = await prisma.product.create({
-      data: { liveId, name: "Other product", price: 2500 },
+      data: { storeId: liveId, name: "Other product", price: 2500 },
     });
 
     await expectIdentityConflict({ productId: otherProduct.id });

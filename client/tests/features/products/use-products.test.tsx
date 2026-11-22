@@ -7,6 +7,7 @@ import type { Product } from "../../../src/features/products/api/products-api";
 import {
   productImageUploadStatusQueryKey,
   productImageUploadsQueryKey,
+  productDetailQueryKey,
   productsQueryKey,
   usePendingProductImageUploads,
   useProductImageUploadStatus,
@@ -29,7 +30,7 @@ afterEach(() => {
 describe("product image mutations", () => {
   const productWithImage: Product = {
     id: "product-1",
-    liveId: "live-1",
+    storeId: "live-1",
     name: "Classic shirt",
     price: 2500,
     options: null,
@@ -52,7 +53,7 @@ describe("product image mutations", () => {
   it("uses the nested upload product for cache updates and invalidates seller and public data", async () => {
     const originalProduct: Product = {
       id: "product-1",
-      liveId: "live-1",
+      storeId: "live-1",
       name: "Classic shirt",
       price: 2500,
       options: null,
@@ -87,7 +88,7 @@ describe("product image mutations", () => {
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
-    queryClient.setQueryData(productsQueryKey("live-1"), [originalProduct]);
+    queryClient.setQueryData(productDetailQueryKey("live-1", "product-1"), originalProduct);
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
@@ -96,17 +97,16 @@ describe("product image mutations", () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        liveId: "live-1",
+        storeId: "live-1",
         productId: "product-1",
         file,
         idempotencyKey: "c58d6a17-5790-4bfc-a0bd-859687084d34",
       });
     });
 
-    expect(queryClient.getQueryData(productsQueryKey("live-1"))).toEqual([updatedProduct]);
+    expect(queryClient.getQueryData(productDetailQueryKey("live-1", "product-1"))).toEqual(updatedProduct);
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: productsQueryKey("live-1"),
-      exact: true,
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["public-live"] });
     expect(invalidateQueries).toHaveBeenCalledWith({
@@ -170,12 +170,12 @@ describe("product image mutations", () => {
 
     await act(async () => {
       await result.current.select.mutateAsync({
-        liveId: "live-1",
+        storeId: "live-1",
         productId: "product-1",
         imageId: "image-2",
       });
       await result.current.remove.mutateAsync({
-        liveId: "live-1",
+        storeId: "live-1",
         productId: "product-1",
         imageId: "image-2",
       });
@@ -189,7 +189,6 @@ describe("product image mutations", () => {
     )).toBe(true);
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: productsQueryKey("live-1"),
-      exact: true,
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["public-live"] });
     queryClient.clear();
