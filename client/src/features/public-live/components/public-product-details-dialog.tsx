@@ -3,9 +3,9 @@ import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { Button } from "../../../components/ui/button";
 import { formatPesewas } from "../../../lib/format-money";
 import { readProductOptionGroups } from "../../../lib/product-options";
-import type { PublicLive } from "../api/public-live-api";
+import type { PublicStorefront } from "../api/public-live-api";
 
-type PublicProduct = PublicLive["products"][number];
+type PublicProduct = PublicStorefront["products"][number];
 
 export function PublicProductDetailsDialog({
   product,
