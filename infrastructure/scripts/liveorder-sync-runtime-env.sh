@@ -17,15 +17,14 @@ aws secretsmanager get-secret-value \
     if (.CLOUDINARY_CLOUD_NAME | type) == "string" and (.CLOUDINARY_CLOUD_NAME | length) > 0
        and (.CLOUDINARY_API_KEY | type) == "string" and (.CLOUDINARY_API_KEY | length) > 0
        and (.CLOUDINARY_API_SECRET | type) == "string" and (.CLOUDINARY_API_SECRET | length) > 0
-       and ((.SMTP_HOST // "") | type) == "string"
-       and ((.SMTP_PORT // "587") | type) == "string"
-       and ((.SMTP_USERNAME // "") | type) == "string"
-       and ((.SMTP_PASSWORD // "") | type) == "string"
-       and ((.SMTP_SECURE // "false") | type) == "string"
-       and ((.SMTP_REQUIRE_TLS // "true") | type) == "string"
-       and ((.SMTP_FROM // "") | type) == "string"
-       and ((.PUBLIC_APP_URL // "") | type) == "string"
-       and (((.SMTP_USERNAME // "") | length) == 0) == (((.SMTP_PASSWORD // "") | length) == 0)
+      and .SMTP_HOST == "smtp.resend.com"
+      and .SMTP_PORT == "465"
+      and .SMTP_USERNAME == "resend"
+      and ((.SMTP_PASSWORD // "") | type) == "string" and (.SMTP_PASSWORD | length) > 0
+      and .SMTP_SECURE == "true"
+      and .SMTP_REQUIRE_TLS == "true"
+      and .SMTP_FROM == "LiveOrder <accounts@mail.liveorder.site>"
+      and .PUBLIC_APP_URL == "https://liveorder.site"
     then
       {
         CLOUDINARY_CLOUD_NAME,
@@ -43,7 +42,7 @@ aws secretsmanager get-secret-value \
       | to_entries
       | map(.key + "=\"" + (.value | tostring | dotenv) + "\"")
       | join("\n")
-    else error("Runtime secret must contain valid Cloudinary strings and optional paired SMTP credentials") end
+    else error("Runtime secret must contain valid Cloudinary and production SMTP configuration") end
   ' >> "$temporary_file"
 chown ec2-user:ec2-user "$temporary_file"
 chmod 0600 "$temporary_file"

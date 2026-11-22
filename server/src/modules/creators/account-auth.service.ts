@@ -59,15 +59,30 @@ export async function registerSeller(input: RegisterInput) {
     // another Creator. A pending account claim (pendingName is null) still
     // requires the original access code to be staged again.
     if (existingPending.pendingName === null || existingPending.purpose !== "EMAIL_VERIFICATION") return genericMessage;
+    let stagedTokenHash: string | undefined;
     try {
-      const { token } = await saveVerification(existingPending.creatorId, email, input.password, input.name);
+      const { token, tokenHash } = await saveVerification(existingPending.creatorId, email, input.password, input.name);
+      stagedTokenHash = tokenHash;
       await sendVerificationEmail(email, token);
       return genericMessage;
     } catch (error) {
       if (emailCollision(error)) return genericMessage;
       if (emailDeliveryFailed(error)) {
-        console.error("Seller verification email delivery failed.");
-        return genericMessage;
+        if (stagedTokenHash) {
+          await prisma.creatorAuthToken.updateMany({
+            where: { creatorId: existingPending.creatorId, tokenHash: stagedTokenHash },
+            data: {
+              pendingEmail: existingPending.pendingEmail,
+              pendingPasswordHash: existingPending.pendingPasswordHash,
+              pendingName: existingPending.pendingName,
+              tokenHash: existingPending.tokenHash,
+              purpose: existingPending.purpose,
+              expiresAt: existingPending.expiresAt,
+              createdAt: existingPending.createdAt,
+            },
+          });
+        }
+        throw error;
       }
       throw error;
     }
@@ -94,10 +109,7 @@ export async function registerSeller(input: RegisterInput) {
       prisma.creator.deleteMany({ where: { id: creatorId, email: null } }),
     ]);
     if (emailCollision(error)) return genericMessage;
-    if (emailDeliveryFailed(error)) {
-      console.error("Seller verification email delivery failed.");
-      return genericMessage;
-    }
+    if (emailDeliveryFailed(error)) throw error;
     throw error;
   }
   return genericMessage;
@@ -127,10 +139,7 @@ export async function claimSellerAccount(input: ClaimInput) {
   } catch (error) {
     if (emailCollision(error)) return genericMessage;
     if (stagedTokenHash) await prisma.creatorAuthToken.deleteMany({ where: { creatorId, tokenHash: stagedTokenHash } });
-    if (emailDeliveryFailed(error)) {
-      console.error("Seller verification email delivery failed.");
-      return genericMessage;
-    }
+    if (emailDeliveryFailed(error)) throw error;
     throw error;
   }
   return genericMessage;
@@ -199,10 +208,7 @@ export async function requestPasswordReset(emailInput: string) {
     await sendPasswordResetEmail(email, token);
   } catch (error) {
     await prisma.creatorPasswordResetToken.deleteMany({ where: { tokenHash } });
-    if (emailDeliveryFailed(error)) {
-      console.error("Password reset email delivery failed.");
-      return genericMessage;
-    }
+    if (emailDeliveryFailed(error)) throw error;
     throw error;
   }
   return genericMessage;

@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import app from "../../src/app.js";
 import { prisma } from "../../src/database/prisma.js";
 import { hashAccessCode } from "../../src/shared/utils/credentials.js";
+import { hashSessionToken } from "../../src/shared/utils/sessions.js";
 import { clearTestAuthEmails, getTestAuthEmails } from "../../src/modules/creators/email-delivery.js";
 import { resetAuthRateLimitsForTests } from "../../src/modules/creators/auth-rate-limit.js";
 import { resetTestDatabase } from "../helpers/test-database.js";
@@ -150,6 +151,73 @@ describe("seller account authentication", () => {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
+    }
+  });
+
+  it("cleans up a new registration after SMTP delivery fails without logging recipient data", async () => {
+    const keys = ["NODE_ENV", "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_SECURE", "SMTP_REQUIRE_TLS", "SMTP_FROM", "PUBLIC_APP_URL"] as const;
+    const previous = new Map(keys.map((key) => [key, process.env[key]]));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.SMTP_HOST = "127.0.0.1";
+      process.env.SMTP_PORT = "1";
+      process.env.SMTP_USERNAME = "";
+      process.env.SMTP_PASSWORD = "";
+      process.env.SMTP_SECURE = "false";
+      process.env.SMTP_REQUIRE_TLS = "true";
+      process.env.SMTP_FROM = "LiveOrder <accounts@example.com>";
+      process.env.PUBLIC_APP_URL = "https://liveorder.site";
+
+      const response = await request(app).post("/api/v1/creator/register").send({
+        name: "New seller",
+        email: "delivery-failure@example.com",
+        password,
+      });
+
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe("EMAIL_DELIVERY_UNAVAILABLE");
+      expect(await prisma.creator.count()).toBe(0);
+      expect(await prisma.creatorAuthToken.count()).toBe(0);
+      const logLine = String(errorLog.mock.calls[0]?.[0]);
+      expect(logLine).toContain('"event":"transactional_email_delivery_failed"');
+      expect(logLine).not.toContain("delivery-failure@example.com");
+      expect(logLine).not.toContain("SellerPassword123");
+
+      const creator = await prisma.creator.create({
+        data: {
+          name: "Pending seller",
+          accessCodeHash: await hashAccessCode(`LO-${randomUUID()}`),
+        },
+      });
+      const previousToken = "a".repeat(32);
+      const previousTokenHash = hashSessionToken(previousToken);
+      await prisma.creatorAuthToken.create({
+        data: {
+          creatorId: creator.id,
+          pendingEmail: "pending@example.com",
+          pendingPasswordHash: await hashAccessCode(password),
+          pendingName: creator.name,
+          tokenHash: previousTokenHash,
+          purpose: "EMAIL_VERIFICATION",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+      await request(app).post("/api/v1/creator/register").send({
+        name: creator.name,
+        email: "pending@example.com",
+        password: "DifferentPassword456",
+      });
+      expect(await prisma.creatorAuthToken.findUniqueOrThrow({ where: { creatorId: creator.id } }))
+        .toMatchObject({ tokenHash: previousTokenHash });
+      expect(errorLog).toHaveBeenCalledTimes(2);
+    } finally {
+      for (const key of keys) {
+        const value = previous.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      errorLog.mockRestore();
     }
   });
 });

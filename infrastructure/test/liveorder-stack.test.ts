@@ -95,6 +95,13 @@ test("publishes only HTTP and HTTPS ingress", () => {
         IpProtocol: "tcp",
         ToPort: 443,
       },
+      {
+        CidrIp: "0.0.0.0/0",
+        Description: "SMTP over TLS for transactional email",
+        FromPort: 465,
+        IpProtocol: "tcp",
+        ToPort: 465,
+      },
     ]),
   });
 });

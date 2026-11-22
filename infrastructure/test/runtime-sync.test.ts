@@ -20,13 +20,13 @@ test("writes SMTP settings as safely escaped Compose dotenv values", () => {
       CLOUDINARY_CLOUD_NAME: "cloud$name",
       CLOUDINARY_API_KEY: "api$key",
       CLOUDINARY_API_SECRET: "secret$key",
-      SMTP_HOST: "smtp.example.com",
-      SMTP_PORT: "587",
-      SMTP_USERNAME: "seller$user",
+      SMTP_HOST: "smtp.resend.com",
+      SMTP_PORT: "465",
+      SMTP_USERNAME: "resend",
       SMTP_PASSWORD: "smtp$secret",
-      SMTP_SECURE: "false",
+      SMTP_SECURE: "true",
       SMTP_REQUIRE_TLS: "true",
-      SMTP_FROM: "LiveOrder <accounts@example.com>",
+      SMTP_FROM: "LiveOrder <accounts@mail.liveorder.site>",
       PUBLIC_APP_URL: "https://liveorder.site",
     }),
     encoding: "utf8",
@@ -35,23 +35,25 @@ test("writes SMTP settings as safely escaped Compose dotenv values", () => {
   assert.match(output, /CLOUDINARY_CLOUD_NAME="cloud\$\$name"/);
   assert.match(output, /CLOUDINARY_API_KEY="api\$\$key"/);
   assert.match(output, /CLOUDINARY_API_SECRET="secret\$\$key"/);
-  assert.match(output, /SMTP_USERNAME="seller\$\$user"/);
+  assert.match(output, /SMTP_USERNAME="resend"/);
   assert.match(output, /SMTP_PASSWORD="smtp\$\$secret"/);
+  assert.match(output, /SMTP_HOST="smtp.resend.com"/);
+  assert.match(output, /SMTP_PORT="465"/);
+  assert.match(output, /SMTP_SECURE="true"/);
+  assert.match(output, /SMTP_FROM="LiveOrder <accounts@mail.liveorder.site>"/);
   assert.match(output, /PUBLIC_APP_URL="https:\/\/liveorder.site"/);
 });
 
-test("keeps SMTP optional in the runtime secret until account email is configured", () => {
+test("rejects runtime secrets without the required production SMTP configuration", () => {
   const jqProgram = runtimeSyncScript.match(/jq -er '([\s\S]*?)'\s*>> "\$temporary_file"/)?.[1];
   assert.ok(jqProgram);
-  const output = execFileSync("jq", ["-r", jqProgram], {
+  assert.throws(() => execFileSync("jq", ["-r", jqProgram], {
     input: JSON.stringify({
       CLOUDINARY_CLOUD_NAME: "cloud",
       CLOUDINARY_API_KEY: "api",
       CLOUDINARY_API_SECRET: "secret",
     }),
     encoding: "utf8",
-  });
-  assert.match(output, /SMTP_HOST=""/);
-  assert.match(output, /SMTP_PORT="587"/);
-  assert.match(output, /SMTP_REQUIRE_TLS="true"/);
+    stdio: ["pipe", "pipe", "ignore"],
+  }));
 });

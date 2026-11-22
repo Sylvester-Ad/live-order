@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { AppError } from "../../shared/errors/app-error.js";
 
 type AuthEmail = { to: string; subject: string; text: string; html: string };
+type EmailPurpose = "verification" | "password_reset";
 const testMessages: AuthEmail[] = [];
 
 function smtpConfiguration() {
@@ -57,7 +58,12 @@ function resetEmail(token: string, appUrl: string): AuthEmail {
   };
 }
 
-async function deliver(to: string, makeEmail: (token: string, appUrl: string) => AuthEmail, token: string) {
+async function deliver(
+  to: string,
+  purpose: EmailPurpose,
+  makeEmail: (token: string, appUrl: string) => AuthEmail,
+  token: string,
+) {
   if (process.env.NODE_ENV === "test") {
     const message = makeEmail(token, "http://localhost:5173");
     testMessages.push({ ...message, to });
@@ -75,7 +81,24 @@ async function deliver(to: string, makeEmail: (token: string, appUrl: string) =>
   });
   try {
     await transport.sendMail({ from: config.from, ...message, to });
-  } catch {
+  } catch (error) {
+    const metadata = typeof error === "object" && error !== null
+      ? error as { code?: unknown; command?: unknown; responseCode?: unknown }
+      : {};
+    console.error(JSON.stringify({
+      level: "error",
+      event: "transactional_email_delivery_failed",
+      purpose,
+      ...(typeof metadata.code === "string" && /^[A-Z0-9_-]{1,32}$/i.test(metadata.code)
+        ? { transportCode: metadata.code }
+        : {}),
+      ...(typeof metadata.command === "string" && /^[A-Z0-9_-]{1,32}$/i.test(metadata.command)
+        ? { smtpCommand: metadata.command }
+        : {}),
+      ...(typeof metadata.responseCode === "number" && Number.isInteger(metadata.responseCode)
+        ? { smtpResponseCode: metadata.responseCode }
+        : {}),
+    }));
     throw new AppError(503, "EMAIL_DELIVERY_UNAVAILABLE", "Email delivery is temporarily unavailable");
   } finally {
     transport.close();
@@ -87,11 +110,11 @@ export function assertEmailDeliveryConfigured() {
 }
 
 export function sendVerificationEmail(to: string, token: string) {
-  return deliver(to, verificationEmail, token);
+  return deliver(to, "verification", verificationEmail, token);
 }
 
 export function sendPasswordResetEmail(to: string, token: string) {
-  return deliver(to, resetEmail, token);
+  return deliver(to, "password_reset", resetEmail, token);
 }
 
 export function getTestAuthEmails() {

@@ -10,7 +10,7 @@ import { AuthFrame } from "./login-page";
 import { useClaimSeller, useRegisterSeller, useRequestPasswordReset, useResetSellerPassword, useVerifySellerEmail } from "../hooks/use-auth";
 
 const genericError = "We couldn't complete that request. Check the details and try again.";
-const genericEmailMessage = "If the details can be used, an email with next steps will be sent.";
+const genericEmailMessage = "If the details can be used, LiveOrder will email next steps. If no email arrives, please try again later.";
 
 function AuthFormNotice({ error }: { error: unknown }) {
   if (!error) return null;
@@ -34,7 +34,7 @@ export function RegisterPage() {
   }
   return <AuthFrame eyebrow="Start selling online" headline="Create a Store and share it with customers." description="Your account gives you one place to manage your Stores, products, and orders.">
     <Heading title="Create a seller account" description="Use an email address you can open to verify your account." />
-    {submitted ? <Notice title="Check your email for a verification link." tone="success"><span>{genericEmailMessage} After verifying, you can create your first Store.</span></Notice> : <>
+    {submitted ? <Notice title="Request received." tone="success"><span>{genericEmailMessage} After verifying, you can create your first Store.</span></Notice> : <>
       <AuthFormNotice error={register.error} />
       <form className="grid gap-5" onSubmit={submit}>
         <TextField autoComplete="name" label="Your name" maxLength={100} onChange={(event) => setName(event.currentTarget.value)} required value={name} />
@@ -59,7 +59,7 @@ export function ClaimAccountPage() {
   }
   return <AuthFrame eyebrow="Existing seller" headline="Keep your Store and order history." description="Claim the seller account connected to your access code. Your existing Stores and orders stay with the same account.">
     <Heading title="Claim your seller account" description="Your access code stays active until you verify the email address." />
-    {submitted ? <Notice title="Check your email for a verification link." tone="success"><span>{genericEmailMessage} Your existing account is updated after verification.</span></Notice> : <>
+    {submitted ? <Notice title="Request received." tone="success"><span>{genericEmailMessage} Your existing account is updated after verification.</span></Notice> : <>
       <AuthFormNotice error={claim.error} />
       <form className="grid gap-5" onSubmit={submit}>
         <TextField autoComplete="off" label="Existing access code" onChange={(event) => setAccessCode(event.currentTarget.value)} required type="password" value={accessCode} />
@@ -116,7 +116,7 @@ export function ForgotPasswordPage() {
   }
   return <AuthFrame eyebrow="Account recovery" headline="Get back to your seller workspace." description="We'll send password recovery instructions if the address can be used for a verified seller account.">
     <Heading title="Forgot your password?" description="Enter the email address on your seller account." />
-    {submitted ? <Notice title="Check your email for next steps." tone="success"><span>{genericEmailMessage}</span></Notice> : <>
+    {submitted ? <Notice title="Request received." tone="success"><span>{genericEmailMessage}</span></Notice> : <>
       <AuthFormNotice error={requestReset.error} />
       <form className="grid gap-5" onSubmit={submit}>
         <TextField autoComplete="email" label="Email" onChange={(event) => setEmail(event.currentTarget.value)} required type="email" value={email} />
