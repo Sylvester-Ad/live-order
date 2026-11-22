@@ -1,20 +1,28 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 
-export function createLiveOrderSqliteFixture(directory: string, filename = "source.db") {
+export function createLiveOrderSqliteFixture(
+  directory: string,
+  filename = "source.db",
+  options: { includeEmailAuth?: boolean } = {},
+) {
+  const includeEmailAuth = options.includeEmailAuth ?? true;
   const databasePath = path.join(directory, filename);
   const database = new Database(databasePath);
   database.pragma("foreign_keys = ON");
   database.exec(`
     CREATE TABLE "Creator" (
-      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "accessCodeHash" TEXT NOT NULL UNIQUE,
-      "email" TEXT UNIQUE, "passwordHash" TEXT, "emailVerifiedAt" DATETIME
+      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "accessCodeHash" TEXT NOT NULL UNIQUE
+      ${includeEmailAuth ? ', "email" TEXT UNIQUE, "passwordHash" TEXT, "emailVerifiedAt" DATETIME' : ""}
     );
     CREATE TABLE "CreatorSession" (
       "id" TEXT PRIMARY KEY, "creatorId" TEXT NOT NULL, "tokenHash" TEXT NOT NULL UNIQUE,
       "expiresAt" DATETIME NOT NULL,
       FOREIGN KEY ("creatorId") REFERENCES "Creator"("id") ON DELETE CASCADE
     );
+    ${
+      includeEmailAuth
+        ? `
     CREATE TABLE "CreatorAuthToken" (
       "id" TEXT PRIMARY KEY, "creatorId" TEXT NOT NULL UNIQUE, "pendingEmail" TEXT NOT NULL UNIQUE,
       "pendingPasswordHash" TEXT NOT NULL, "pendingName" TEXT, "tokenHash" TEXT NOT NULL UNIQUE,
@@ -26,6 +34,9 @@ export function createLiveOrderSqliteFixture(directory: string, filename = "sour
       "expiresAt" DATETIME NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("creatorId") REFERENCES "Creator"("id") ON DELETE CASCADE
     );
+    `
+        : ""
+    }
     CREATE TABLE "Live" (
       "id" TEXT PRIMARY KEY, "creatorId" TEXT NOT NULL, "name" TEXT NOT NULL,
       "slug" TEXT NOT NULL UNIQUE, "status" TEXT NOT NULL,
@@ -57,7 +68,10 @@ export function createLiveOrderSqliteFixture(directory: string, filename = "sour
       "started_at" DATETIME NOT NULL, "finished_at" DATETIME
     );
   `);
-  database.prepare('INSERT INTO "Creator" ("id", "name", "accessCodeHash") VALUES (?, ?, ?)')
+  database
+    .prepare(
+      'INSERT INTO "Creator" ("id", "name", "accessCodeHash") VALUES (?, ?, ?)',
+    )
     .run("fixture-id", "Fixture creator", "fixture-hash");
   database.close();
   return databasePath;
