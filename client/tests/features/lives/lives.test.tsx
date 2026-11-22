@@ -46,7 +46,12 @@ function authenticatedFetch(lives: unknown[] = [draftStore]) {
       return response({ data: draftStore }, 201);
     }
     if (url.endsWith("/v1/stores")) return response({ data: lives });
-    if (url.includes("/v1/stores/") && url.endsWith("/orders")) return response({ data: [] });
+    if (/\/v1\/stores\/[^/]+\/orders$/.test(new URL(url).pathname)) {
+      return response({
+        data: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false },
+      });
+    }
     if (url.includes("/v1/stores/live-1/") && init?.method === "POST") {
       const status = url.endsWith("/publish") ? "PUBLISHED" : "UNPUBLISHED";
       const updated = { ...draftStore, status };
