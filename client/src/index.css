@@ -61,7 +61,9 @@
   --status-warn-ink: #805d12;
   --status-neutral-bg: #edf1ef;
   --status-neutral-ink: #596761;
-  --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -76,13 +78,11 @@
 }
 
 html {
-  min-width: 320px;
   background: var(--canvas);
 }
 
 body {
   margin: 0;
-  min-width: 320px;
   min-height: 100vh;
 }
 
